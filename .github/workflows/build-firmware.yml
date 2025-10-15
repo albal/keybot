@@ -21,11 +21,29 @@ jobs:
         with:
           submodules: 'recursive'
 
-      - name: Setup ESP-IDF and Build firmware
-        uses: espressif/esp-idf-ci-action@v1
+      - name: Build ESP32 firmware
+        uses: espressif/esp-idf-ci-action@v1.2.0
         with:
-          esp_idf_version: v5.1
-          target: esp32
+          esp_idf_version: release-v5.1
+          command: idf.py build
+
+      - name: Create merged firmware binary
+        uses: espressif/esp-idf-ci-action@v1.2.0
+        with:
+          esp_idf_version: release-v5.1
+          command: |
+            # Create combined flashable image using esptool from ESP-IDF
+            python $IDF_PATH/components/esptool_py/esptool/esptool.py --chip esp32 merge_bin \
+              -o "esp32_macropad_merged.bin" \
+              --flash_mode dio \
+              --flash_freq 40m \
+              --flash_size 4MB \
+              0x1000 build/bootloader/bootloader.bin \
+              0x8000 build/partition_table/partition-table.bin \
+              0x10000 build/esp32_macropad.bin
+            
+            echo "Combined flashable binary created: esp32_macropad_merged.bin"
+            ls -la esp32_macropad_merged.bin
 
       - name: Prepare firmware artifacts
         run: |
@@ -34,13 +52,7 @@ jobs:
           cp build/partition_table/partition-table.bin firmware-artifacts/
           cp build/esp32_macropad.bin firmware-artifacts/
           cp build/esp32_macropad.elf firmware-artifacts/
-          # Create a merged firmware binary for easy flashing
-          esptool.py --chip esp32 merge_bin \
-            -o firmware-artifacts/esp32_macropad_merged.bin \
-            --flash_mode dio --flash_freq 40m --flash_size 4MB \
-            0x1000 build/bootloader/bootloader.bin \
-            0x8000 build/partition_table/partition-table.bin \
-            0x10000 build/esp32_macropad.bin
+          cp esp32_macropad_merged.bin firmware-artifacts/
 
       - name: Create flash instructions
         run: |
