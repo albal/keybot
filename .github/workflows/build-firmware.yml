@@ -21,14 +21,11 @@ jobs:
         with:
           submodules: 'recursive'
 
-      - name: Setup ESP-IDF
+      - name: Setup ESP-IDF and Build firmware
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.1
           target: esp32
-
-      - name: Build firmware
-        run: idf.py build
 
       - name: Prepare firmware artifacts
         run: |
