@@ -39,3 +39,28 @@
 
 # debug information files
 *.dwo
+
+# PlatformIO
+.pio
+.pioenvs
+.piolibdeps
+.vscode/
+.clang_complete
+.gcc-flags.json
+
+# Arduino
+*.elf
+*.eep
+*.hex
+*.bin
+
+# IDE
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+
+# Build artifacts
+build/
+dist/

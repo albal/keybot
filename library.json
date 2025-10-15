@@ -1,0 +1,42 @@
+{
+  "name": "ESP32-MacroPad",
+  "version": "1.0.0",
+  "description": "Firmware for ESP32 Bluetooth HID macro keyboard with touchscreen display",
+  "keywords": [
+    "esp32",
+    "bluetooth",
+    "hid",
+    "keyboard",
+    "macro",
+    "touchscreen",
+    "ili9341"
+  ],
+  "authors": [
+    {
+      "name": "Al West",
+      "maintainer": true
+    }
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/albal/keybot",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/albal/keybot.git"
+  },
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "dependencies": [
+    {
+      "name": "TFT_eSPI",
+      "version": "^2.5.43",
+      "authors": "Bodmer",
+      "frameworks": "arduino"
+    },
+    {
+      "name": "ESP32 BLE Keyboard",
+      "version": "^0.3.2",
+      "authors": "T-vK",
+      "frameworks": "arduino"
+    }
+  ]
+}
