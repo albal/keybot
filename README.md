@@ -185,6 +185,69 @@ Connect the ILI9341 display to the ESP32 as follows:
    idf.py -p /dev/ttyUSB0 flash monitor
    ```
 
+## Pre-built Firmware
+
+If you don't want to build the firmware yourself, you can download pre-built firmware binaries from the GitHub Releases page.
+
+### Downloading Pre-built Firmware
+
+1. **Visit the Releases page**: https://github.com/albal/keybot/releases
+2. **Download the latest release** - Look for the most recent version
+3. **Download these files** from the Assets section:
+   - `esp32_macropad_merged.bin` (easiest option)
+   - OR all three files: `bootloader.bin`, `partition-table.bin`, `esp32_macropad.bin`
+   - `FLASH_INSTRUCTIONS.txt` (optional - contains detailed instructions)
+
+### Flashing Pre-built Firmware
+
+#### Easy Method (Merged Binary)
+
+1. **Install esptool.py**:
+   ```bash
+   pip install esptool
+   ```
+
+2. **Connect your ESP32** to your computer via USB
+
+3. **Flash the merged binary**:
+   ```bash
+   esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 921600 \
+     write_flash -z --flash_mode dio --flash_freq 40m --flash_size 4MB \
+     0x0 esp32_macropad_merged.bin
+   ```
+   
+   Replace `/dev/ttyUSB0` with your actual serial port:
+   - Linux/macOS: Usually `/dev/ttyUSB0`, `/dev/ttyACM0`, or `/dev/cu.usbserial-*`
+   - Windows: Usually `COM3`, `COM4`, etc.
+
+#### Standard Method (Individual Files)
+
+If you prefer to flash individual components:
+
+```bash
+esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 921600 \
+  write_flash -z --flash_mode dio --flash_freq 40m --flash_size 4MB \
+  0x1000 bootloader.bin \
+  0x8000 partition-table.bin \
+  0x10000 esp32_macropad.bin
+```
+
+### Verifying the Flash
+
+After flashing, verify the device is working:
+
+```bash
+# Monitor serial output
+idf.py -p /dev/ttyUSB0 monitor
+
+# Or using screen/minicom
+screen /dev/ttyUSB0 115200
+```
+
+Press the RESET button on the ESP32, and you should see boot messages.
+
+**Note**: If flashing fails, try holding the BOOT button while connecting the USB cable, then release it when flashing starts.
+
 ## Usage
 
 ### First Boot

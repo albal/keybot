@@ -12,6 +12,7 @@ First off, thank you for considering contributing to ESP32 MacroPad! It's people
 6. [Pull Request Process](#pull-request-process)
 7. [Testing Guidelines](#testing-guidelines)
 8. [Documentation](#documentation)
+9. [CI/CD and Releases](#cicd-and-releases)
 
 ---
 
@@ -554,6 +555,70 @@ When making changes:
 | TESTING.md | Test strategy | New test cases |
 | EXAMPLES.md | Example macros | New examples |
 | CONTRIBUTING.md | This file | Contribution process changes |
+
+---
+
+## CI/CD and Releases
+
+### Automated Builds
+
+This project uses GitHub Actions to automatically build firmware on every push and pull request.
+
+**What happens automatically**:
+- Firmware is built using ESP-IDF v5.1
+- Build artifacts are created (bootloader, partition table, app binary)
+- A merged binary is generated for easy flashing
+- Flash instructions are included with artifacts
+- Artifacts are stored for 90 days
+
+**Accessing build artifacts**:
+1. Go to the Actions tab in GitHub
+2. Click on the workflow run you're interested in
+3. Scroll down to the "Artifacts" section
+4. Download the `esp32-macropad-firmware` artifact
+
+### Creating Releases
+
+When a new version is ready to be released:
+
+1. **Update CHANGELOG.md** with all changes for the new version
+2. **Update version references** in code/documentation if needed
+3. **Commit and push** all changes
+4. **Create and push a version tag**:
+   ```bash
+   git tag -a v1.0.1 -m "Release version 1.0.1"
+   git push origin v1.0.1
+   ```
+5. **GitHub Actions will automatically**:
+   - Build the firmware
+   - Create a GitHub Release
+   - Attach firmware binaries to the release
+   - Include flash instructions
+
+### Release Versioning
+
+We follow [Semantic Versioning](https://semver.org/):
+
+- **Major version** (X.0.0): Breaking changes or major new features
+- **Minor version** (0.X.0): New features, backward compatible
+- **Patch version** (0.0.X): Bug fixes and minor improvements
+
+Examples:
+- `v1.0.0` - Initial release
+- `v1.1.0` - New feature: WiFi configuration
+- `v1.1.1` - Bug fix: Touch calibration issue
+- `v2.0.0` - Breaking change: New storage format
+
+### Release Checklist
+
+Before creating a release tag:
+
+- [ ] All tests passing
+- [ ] CHANGELOG.md updated
+- [ ] README.md updated if needed
+- [ ] Version numbers updated in code
+- [ ] All PRs for this version merged
+- [ ] No known critical bugs
 
 ---
 
