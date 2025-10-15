@@ -40,19 +40,13 @@
 # debug information files
 *.dwo
 
-# PlatformIO
-.pio
-.pioenvs
-.piolibdeps
-.vscode/
-.clang_complete
-.gcc-flags.json
-
-# Arduino
-*.elf
-*.eep
-*.hex
-*.bin
+# ESP-IDF
+build/
+sdkconfig
+sdkconfig.old
+sdkconfig.defaults
+dependencies.lock
+managed_components/
 
 # IDE
 .DS_Store
@@ -60,7 +54,12 @@
 *.swo
 *~
 .idea/
+.vscode/
 
-# Build artifacts
-build/
-dist/
+# Python
+__pycache__/
+*.pyc
+.Python
+
+# Misc
+*.log

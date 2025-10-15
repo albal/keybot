@@ -18,12 +18,12 @@
 **ESP32 MacroPad** is a custom Bluetooth HID macro keyboard built on the ESP32-WROOM-32 platform with a touchscreen interface. It allows users to configure and execute up to 4 text macros with a two-step confirmation system, preventing accidental keystrokes.
 
 **Key Stats**:
-- 🔧 1,071 lines of production-ready C++ code
+- 🔧 Native ESP-IDF implementation in C
 - 📚 9 comprehensive documentation files
-- 🎨 Full touchscreen UI with on-screen keyboard
-- 🔐 Persistent storage (survives power cycles)
-- 📡 Bluetooth HID keyboard emulation
-- ⚡ Non-blocking, responsive main loop
+- 🎨 Framework for touchscreen UI with on-screen keyboard
+- 🔐 Persistent storage using NVS (survives power cycles)
+- 📡 Bluetooth HID keyboard emulation support
+- ⚡ FreeRTOS-based task architecture
 
 ---
 
@@ -36,7 +36,8 @@
 👉 **Hardware Guide**: [HARDWARE.md](HARDWARE.md) (Bill of Materials, assembly, wiring)
 
 ### For Developers
-👉 **Source Code**: [keybot.ino](keybot.ino) (complete firmware)  
+👉 **Source Code**: [main/main.c](main/main.c) (main application)  
+👉 **Build System**: [CMakeLists.txt](CMakeLists.txt) (ESP-IDF configuration)  
 👉 **Testing**: [TESTING.md](TESTING.md) (test cases and strategies)
 
 ### For Users Looking for Ideas
@@ -51,26 +52,28 @@
 
 ```
 keybot/
-├── keybot.ino                  # Main firmware (1,071 lines)
-│                               # Complete C++ Arduino sketch
+├── CMakeLists.txt              # Root ESP-IDF build configuration
+│
+├── main/
+│   ├── CMakeLists.txt          # Main component build config
+│   └── main.c                  # Main application (~500 lines)
+│
+├── components/                 # Custom ESP-IDF components (optional)
 │
 ├── Documentation/
-│   ├── README.md              # Comprehensive user guide (11 KB)
-│   ├── QUICK_START.md         # 15-minute getting started (4.7 KB)
-│   ├── HARDWARE.md            # Assembly & BOM guide (16 KB)
-│   ├── TESTING.md             # Test strategy & cases (21 KB)
-│   ├── EXAMPLES.md            # Macro examples (11 KB)
-│   ├── CHANGELOG.md           # Version history (3.7 KB)
-│   └── PROJECT_OVERVIEW.md    # This file
-│
-├── Configuration/
-│   ├── platformio.ini         # PlatformIO config
-│   ├── library.json           # Dependency manifest
-│   └── User_Setup_Example.h   # TFT_eSPI configuration
+│   ├── README.md               # Comprehensive user guide
+│   ├── QUICK_START.md          # ESP-IDF getting started
+│   ├── HARDWARE.md             # Assembly & BOM guide
+│   ├── TESTING.md              # Test strategy & cases
+│   ├── EXAMPLES.md             # Macro examples
+│   ├── CHANGELOG.md            # Version history
+│   ├── PROJECT_OVERVIEW.md     # This file
+│   └── CONTRIBUTING.md         # Contribution guidelines
 │
 └── Meta/
-    ├── LICENSE                # MIT License
-    └── .gitignore            # Git ignore rules
+    ├── LICENSE                 # MIT License
+    ├── .gitignore              # Git ignore rules
+    └── sdkconfig               # ESP-IDF project config (generated)
 ```
 
 ---
@@ -129,46 +132,48 @@ keybot/
 
 ## 🚀 Getting Started Paths
 
-### Path 1: Absolute Beginner (Never used Arduino/ESP32)
-**Time**: 30-45 minutes
+### Path 1: Beginner with ESP-IDF
+**Time**: 45-60 minutes (including ESP-IDF setup)
 
 1. Read [QUICK_START.md](QUICK_START.md) completely
-2. Install Arduino IDE and libraries (steps 1-3)
-3. Configure TFT_eSPI library (step 4)
-4. Wire hardware carefully (step 5)
-5. Upload firmware (step 6)
-6. Test and pair (steps 7-8)
+2. Install ESP-IDF (step 1, ~15 minutes)
+3. Clone repository (step 2)
+4. Wire hardware carefully (step 3)
+5. Build and flash firmware (step 4)
+6. Monitor output (step 5)
 7. If issues: Check troubleshooting in QUICK_START.md
 
-### Path 2: Experienced Maker (Familiar with Arduino/ESP32)
-**Time**: 15-20 minutes
-
-1. Clone repository
-2. Install libraries: `TFT_eSPI`, `ESP32 BLE Keyboard`
-3. Edit `TFT_eSPI/User_Setup.h` (or copy from `User_Setup_Example.h`)
-4. Wire ESP32 to ILI9341 (see pin table)
-5. Upload `keybot.ino`
-6. Pair Bluetooth and test
-
-### Path 3: PlatformIO User
+### Path 2: Experienced ESP-IDF User
 **Time**: 10-15 minutes
 
 1. Clone repository
-2. Open in PlatformIO
-3. Let PlatformIO install dependencies
-4. Edit `TFT_eSPI/User_Setup.h` after first build
-5. Wire hardware
-6. Upload and test
+2. Set ESP-IDF environment: `. $IDF_PATH/export.sh`
+3. Wire ESP32 to ILI9341 (see pin table)
+4. Build: `idf.py build`
+5. Flash: `idf.py -p PORT flash monitor`
+6. Review code in `main/main.c`
 
-### Path 4: Developer/Contributor
+### Path 3: Developer/Contributor
 **Time**: Variable
 
 1. Clone repository
-2. Read [keybot.ino](keybot.ino) (well-commented)
+2. Read [main/main.c](main/main.c) (framework code)
 3. Review architecture in [README.md](README.md)
 4. Check [TESTING.md](TESTING.md) for test strategy
 5. Review [CHANGELOG.md](CHANGELOG.md) for version info
-6. Make improvements and submit PR
+6. Implement display/BLE components
+7. Make improvements and submit PR
+
+### Path 4: Arduino Background, New to ESP-IDF
+**Time**: 1-2 hours (learning curve)
+
+1. Review ESP-IDF documentation: https://docs.espressif.com/projects/esp-idf/
+2. Understand key differences:
+   - No `setup()` and `loop()` - use `app_main()` and FreeRTOS tasks
+   - CMake build system instead of Arduino build
+   - ESP-IDF APIs instead of Arduino functions
+3. Follow Path 1 above
+4. Reference ESP-IDF examples for similar functionality
 
 ---
 

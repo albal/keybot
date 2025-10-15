@@ -8,48 +8,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2025-10-15
 
 ### Added
-- Initial release of ESP32 MacroPad firmware
-- Main playback mode with 4 configurable macro buttons
-- Two-step safeguard mechanism (select + confirm) to prevent accidental macro execution
-- Configuration mode with on-screen QWERTY keyboard
-- Full alphanumeric and special character support
-- Shift key for uppercase letters and alternate symbols
-- Backspace and Space keys
-- Persistent storage using ESP32 NVS (Preferences library)
-- Bluetooth HID keyboard functionality via BleKeyboard library
-- Real-time Bluetooth connection status indicator
-- Visual feedback for button presses and selections
-- 5-second automatic timeout for macro selection
-- Touch-based UI using ILI9341 320x240 TFT display
-- XPT2046 touch controller support
-- Serial debug output for troubleshooting
+- Initial ESP-IDF framework implementation of ESP32 MacroPad
+- Native ESP-IDF support (v5.0+) for better performance
+- CMake build system configuration
+- Main playback mode framework with 4 configurable macro buttons
+- Framework for two-step safeguard mechanism (select + confirm)
+- Framework for configuration mode with on-screen QWERTY keyboard
+- NVS Flash API integration for persistent macro storage
+- FreeRTOS tasks for UI and touch handling
+- SPI bus initialization for ILI9341 and XPT2046 controllers
+- GPIO configuration with backlight control
+- Framework for Bluetooth HID using Bluedroid stack
+- ESP_LOG integration for debugging and monitoring
 - Comprehensive inline code documentation
 - Complete pinout diagram in code comments
-- Detailed README with setup instructions
+- Detailed README with ESP-IDF setup instructions
 - Extensive testing strategy documentation (TESTING.md)
-- PlatformIO configuration (platformio.ini)
-- Library dependencies management (library.json)
-- TFT_eSPI configuration example (User_Setup_Example.h)
+- CMakeLists.txt for ESP-IDF build system
 - Hardware wiring guide
 
-### Features
-- Device advertises as "ESP32 MacroPad"
-- Support for macros up to 500+ characters
-- Graceful handling of Bluetooth connection/disconnection
-- Automatic reconnection capability
-- Non-blocking main loop for responsive UI
-- Word-wrapped text display in edit mode
-- Dynamic Send button positioning (opposite to selected macro)
-- Color-coded UI elements for better user experience
+### Features (Framework)
+- Device name: "ESP32 MacroPad"
+- Support for macros up to 512 characters (MAX_MACRO_LEN)
+- NVS namespace "macropad" for data persistence
+- State machine for mode management (Playback/Config/Edit)
+- Task-based architecture for responsive operation
+- Configurable pin assignments via defines
 
 ### Technical
-- Written in C++ using Arduino framework
+- Written in C for ESP-IDF framework
 - Compatible with ESP32-WROOM-32 and similar ESP32 modules
-- SPI-based display communication for fast refresh rates
-- Debounced touch input to prevent double-presses
+- FreeRTOS-based task scheduling
+- SPI Master driver for display communication
+- NVS Flash API for persistent storage
 - Modular code structure with logical function organization
 - Configurable pin assignments
-- Customizable colors and layout
+- ESP-IDF v5.0+ required
 
 ### Documentation
 - Getting Started guide

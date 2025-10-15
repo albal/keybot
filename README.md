@@ -2,6 +2,8 @@
 
 Firmware for an ESP32-WROOM-32 with ILI9341 touchscreen display to configure and playback macros via Bluetooth HID.
 
+**Built with ESP-IDF** - Espressif IoT Development Framework for native ESP32 support and optimal performance.
+
 ## Overview
 
 This project implements a custom Bluetooth HID macro keyboard using an ESP32-WROOM-32 microcontroller and a 320x240 TFT LCD touchscreen. The device functions as a wireless macro pad with four configurable buttons that can send pre-configured text strings to any connected computer as keyboard input.
@@ -15,6 +17,7 @@ This project implements a custom Bluetooth HID macro keyboard using an ESP32-WRO
 - **Persistent Storage**: Macros saved to ESP32 NVS (survives power cycles)
 - **Configuration Mode**: Easy-to-use on-screen QWERTY keyboard for editing macros
 - **Real-time Bluetooth Status**: Visual indicator shows connection status
+- **Native ESP-IDF**: Uses Espressif's native framework for better performance
 
 ## Hardware Requirements
 
@@ -46,109 +49,141 @@ Connect the ILI9341 display to the ESP32 as follows:
 
 ## Software Requirements
 
-### Option 1: Arduino IDE
+### ESP-IDF (Required)
 
-1. **Arduino IDE** (version 1.8.x or 2.x)
-2. **ESP32 Board Support**:
-   - Add to Board Manager URLs: `https://dl.espressif.com/dl/package_esp32_index.json`
-   - Install "ESP32 by Espressif Systems"
+1. **ESP-IDF v5.0 or later**
+   - Follow the official getting started guide: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/
+   - Install prerequisites: Python 3.8+, CMake 3.16+, Git
+   - Install ESP-IDF toolchain for your platform (Windows, macOS, Linux)
+   - Set up environment variables (`IDF_PATH`)
 
-3. **Required Libraries** (install via Library Manager):
-   - **TFT_eSPI** by Bodmer (v2.5.43 or later)
-   - **ESP32 BLE Keyboard** by T-vK (v0.3.2 or later)
-   - **Preferences** (built-in with ESP32 core)
-
-### Option 2: PlatformIO
-
-1. **PlatformIO IDE** (VS Code extension or CLI)
-2. Dependencies are automatically managed via `platformio.ini`
+2. **System Requirements**:
+   - Python 3.8 or later
+   - CMake 3.16 or later
+   - Git
+   - ~2GB disk space for ESP-IDF and toolchain
 
 ## Installation & Setup
 
-### Step 1: Install Required Software
+### Step 1: Install ESP-IDF
 
-#### Using Arduino IDE:
+#### Linux/macOS:
 
-1. Open Arduino IDE
-2. Go to **File → Preferences**
-3. Add ESP32 board manager URL
-4. Go to **Tools → Board → Board Manager**
-5. Search and install "ESP32"
-6. Go to **Tools → Manage Libraries**
-7. Search and install:
-   - "TFT_eSPI"
-   - "ESP32 BLE Keyboard"
-
-#### Using PlatformIO:
-
-1. Install PlatformIO IDE extension for VS Code
-2. Open project folder
-3. PlatformIO will automatically install dependencies
-
-### Step 2: Configure TFT_eSPI Library
-
-The TFT_eSPI library requires configuration for your specific display:
-
-#### Arduino IDE:
-
-1. Navigate to Arduino library folder:
-   - Windows: `Documents\Arduino\libraries\TFT_eSPI\`
-   - Mac/Linux: `~/Arduino/libraries/TFT_eSPI/`
-
-2. Edit `User_Setup.h` or create a custom setup file
-
-3. Enable these settings:
-   ```cpp
-   #define ILI9341_DRIVER
-   #define TFT_WIDTH  240
-   #define TFT_HEIGHT 320
+1. **Install prerequisites**:
+   ```bash
+   # Ubuntu/Debian
+   sudo apt-get install git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
    
-   #define TFT_MOSI 23
-   #define TFT_MISO 19
-   #define TFT_SCLK 18
-   #define TFT_CS   15
-   #define TFT_DC   2
-   #define TFT_RST  4
-   #define TOUCH_CS 5
-   
-   #define LOAD_GLCD
-   #define LOAD_FONT2
-   #define LOAD_FONT4
-   #define LOAD_FONT6
-   #define LOAD_FONT7
-   #define LOAD_FONT8
-   #define SMOOTH_FONT
-   
-   #define SPI_FREQUENCY  40000000
-   #define SPI_READ_FREQUENCY  20000000
-   #define SPI_TOUCH_FREQUENCY  2500000
+   # macOS (with Homebrew)
+   brew install cmake ninja dfu-util
    ```
 
-#### PlatformIO:
+2. **Clone ESP-IDF**:
+   ```bash
+   mkdir -p ~/esp
+   cd ~/esp
+   git clone --recursive https://github.com/espressif/esp-idf.git
+   cd esp-idf
+   git checkout v5.1  # or latest stable version
+   ```
 
-Configuration notes are included in `platformio.ini`. Edit the library's `User_Setup.h` after first build.
+3. **Install ESP-IDF tools**:
+   ```bash
+   cd ~/esp/esp-idf
+   ./install.sh esp32
+   ```
 
-### Step 3: Upload Firmware
+4. **Set up environment**:
+   ```bash
+   . ~/esp/esp-idf/export.sh
+   ```
+   
+   Add this to your shell profile (~/.bashrc or ~/.zshrc) for convenience:
+   ```bash
+   alias get_idf='. $HOME/esp/esp-idf/export.sh'
+   ```
 
-#### Arduino IDE:
+#### Windows:
 
-1. Open `keybot.ino`
-2. Select board: **Tools → Board → ESP32 Dev Module**
-3. Select port: **Tools → Port → (your COM port)**
-4. Click **Upload**
+1. Download and run the ESP-IDF Installer from:
+   https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/windows-setup.html
 
-#### PlatformIO:
+2. The installer will:
+   - Install Python, Git, CMake, and other tools
+   - Clone ESP-IDF repository
+   - Set up environment variables
+   - Create desktop shortcuts for ESP-IDF command prompt
 
-1. Open project in VS Code
-2. Click **PlatformIO: Upload** (arrow icon)
-3. Or use command: `pio run --target upload`
+### Step 2: Get the Project
+
+1. **Clone this repository**:
+   ```bash
+   git clone https://github.com/albal/keybot.git
+   cd keybot
+   ```
+
+### Step 3: Configure and Build
+
+1. **Set up ESP-IDF environment** (if not already done):
+   ```bash
+   # Linux/macOS
+   . ~/esp/esp-idf/export.sh
+   
+   # Windows - use ESP-IDF Command Prompt
+   ```
+
+2. **Configure the project** (optional):
+   ```bash
+   idf.py menuconfig
+   ```
+   
+   In menuconfig, you can adjust:
+   - Serial flasher config → Flash size
+   - Component config → Bluetooth → Bluedroid options
+   - Component config → ESP32-specific → CPU frequency
+
+3. **Build the project**:
+   ```bash
+   idf.py build
+   ```
 
 ### Step 4: Connect Hardware
 
 1. Power off the ESP32
 2. Connect the ILI9341 display according to the wiring diagram
 3. Double-check all connections
-4. Power on the ESP32
+4. Connect ESP32 to computer via USB
+
+### Step 5: Flash Firmware
+
+1. **Find your serial port**:
+   ```bash
+   # Linux/macOS
+   ls /dev/tty*
+   # Look for /dev/ttyUSB0 or /dev/ttyACM0
+   
+   # Windows
+   # Use Device Manager to find COM port
+   ```
+
+2. **Flash the firmware**:
+   ```bash
+   idf.py -p /dev/ttyUSB0 flash
+   ```
+   
+   Replace `/dev/ttyUSB0` with your actual port.
+
+3. **Monitor output** (optional):
+   ```bash
+   idf.py -p /dev/ttyUSB0 monitor
+   ```
+   
+   Press `Ctrl+]` to exit monitor.
+
+4. **Flash and monitor in one command**:
+   ```bash
+   idf.py -p /dev/ttyUSB0 flash monitor
+   ```
 
 ## Usage
 

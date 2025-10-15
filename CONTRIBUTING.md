@@ -124,12 +124,25 @@ We love code contributions! Here are the types of contributions we're looking fo
 
 ### Prerequisites
 
-1. **Arduino IDE** (1.8.x or 2.x) or **PlatformIO**
-2. **ESP32 Board Support** installed
-3. **Required libraries**:
-   - TFT_eSPI by Bodmer
-   - ESP32 BLE Keyboard by T-vK
+1. **ESP-IDF v5.0 or later** installed and configured
+2. **Python 3.8+** with required packages
+3. **CMake 3.16+** for building
 4. **Git** for version control
+5. **Serial terminal** for monitoring (built into ESP-IDF)
+
+### ESP-IDF Installation
+
+Follow the official guide: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/
+
+Quick setup:
+```bash
+mkdir -p ~/esp
+cd ~/esp
+git clone --recursive https://github.com/espressif/esp-idf.git
+cd esp-idf
+./install.sh esp32
+. ./export.sh
+```
 
 ### Setting Up Development Environment
 
@@ -154,15 +167,23 @@ We love code contributions! Here are the types of contributions we're looking fo
    git checkout -b feature/your-feature-name
    ```
 
-5. **Configure TFT_eSPI**:
-   - Edit `User_Setup.h` in TFT_eSPI library
-   - Or reference `User_Setup_Example.h`
+5. **Set up ESP-IDF environment**:
+   ```bash
+   . ~/esp/esp-idf/export.sh
+   ```
 
-6. **Make your changes**:
-   - Edit `keybot.ino` or documentation
+6. **Build the project**:
+   ```bash
+   cd keybot
+   idf.py build
+   ```
+
+7. **Make your changes**:
+   - Edit `main/main.c` or other source files
+   - Update CMakeLists.txt if adding new files
    - Test thoroughly
 
-7. **Commit and push**:
+8. **Commit and push**:
    ```bash
    git add .
    git commit -m "Description of changes"

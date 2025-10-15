@@ -1,6 +1,6 @@
 # Quick Start Guide - ESP32 MacroPad
 
-Get your ESP32 MacroPad up and running in 15 minutes!
+Get your ESP32 MacroPad up and running in 30 minutes using ESP-IDF!
 
 ## What You Need
 
@@ -8,63 +8,53 @@ Get your ESP32 MacroPad up and running in 15 minutes!
 - ✅ ILI9341 2.8" or 3.2" touchscreen display
 - ✅ 12 jumper wires
 - ✅ USB cable
-- ✅ Computer with Arduino IDE
+- ✅ Computer with ESP-IDF installed
 
-## Step 1: Install Arduino IDE (5 minutes)
+## Step 1: Install ESP-IDF (10-15 minutes)
 
-1. Download Arduino IDE from [arduino.cc](https://www.arduino.cc/en/software)
-2. Install and open Arduino IDE
-3. Go to **File → Preferences**
-4. In "Additional Board Manager URLs", add:
-   ```
-   https://dl.espressif.com/dl/package_esp32_index.json
-   ```
-5. Click OK
+### Linux/macOS:
 
-## Step 2: Install ESP32 Board Support (2 minutes)
-
-1. Go to **Tools → Board → Boards Manager**
-2. Search for "ESP32"
-3. Install "ESP32 by Espressif Systems"
-4. Wait for installation to complete
-
-## Step 3: Install Required Libraries (3 minutes)
-
-1. Go to **Tools → Manage Libraries**
-2. Search and install these:
-   - **TFT_eSPI** by Bodmer
-   - **ESP32 BLE Keyboard** by T-vK
-
-## Step 4: Configure TFT_eSPI (2 minutes)
-
-1. Find TFT_eSPI library folder:
-   - Windows: `Documents\Arduino\libraries\TFT_eSPI\`
-   - Mac: `~/Documents/Arduino/libraries/TFT_eSPI/`
-   - Linux: `~/Arduino/libraries/TFT_eSPI/`
-
-2. Open `User_Setup.h` in a text editor
-
-3. Find and uncomment (remove `//` from):
-   ```cpp
-   #define ILI9341_DRIVER
+1. **Install prerequisites**:
+   ```bash
+   # Ubuntu/Debian
+   sudo apt-get install git wget flex bison gperf python3 python3-pip python3-venv cmake ninja-build ccache libffi-dev libssl-dev dfu-util libusb-1.0-0
+   
+   # macOS
+   brew install cmake ninja dfu-util
    ```
 
-4. Find and set these pin definitions:
-   ```cpp
-   #define TFT_MISO 19
-   #define TFT_MOSI 23
-   #define TFT_SCLK 18
-   #define TFT_CS   15
-   #define TFT_DC   2
-   #define TFT_RST  4
-   #define TOUCH_CS 5
+2. **Get ESP-IDF**:
+   ```bash
+   mkdir -p ~/esp
+   cd ~/esp
+   git clone --recursive https://github.com/espressif/esp-idf.git
+   cd esp-idf
+   git checkout v5.1
+   ./install.sh esp32
    ```
 
-5. Save and close
+3. **Set environment**:
+   ```bash
+   . ~/esp/esp-idf/export.sh
+   ```
 
-**TIP**: You can copy settings from `User_Setup_Example.h` in this repository!
+### Windows:
 
-## Step 5: Wire the Display (3 minutes)
+1. Download ESP-IDF Tools Installer from:
+   https://dl.espressif.com/dl/esp-idf/
+
+2. Run installer - it handles everything automatically
+
+3. Use "ESP-IDF Command Prompt" from Start Menu
+
+## Step 2: Get the Project (1 minute)
+
+```bash
+git clone https://github.com/albal/keybot.git
+cd keybot
+```
+
+## Step 3: Wire the Display (3 minutes)
 
 Connect wires from ESP32 to Display:
 
@@ -85,54 +75,101 @@ Connect wires from ESP32 to Display:
 - Connect 3.3V to VCC (not 5V!)
 - Double-check GND is connected
 
-## Step 6: Upload Firmware (2 minutes)
+## Step 4: Build and Flash (5 minutes)
 
-1. Open `keybot.ino` in Arduino IDE
-2. Connect ESP32 to computer via USB
-3. Select board: **Tools → Board → ESP32 Dev Module**
-4. Select port: **Tools → Port → (your COM port)**
-5. Click **Upload** button (→)
-6. Wait for "Done uploading" message
+1. **Set up environment** (if not already done):
+   ```bash
+   . ~/esp/esp-idf/export.sh  # Linux/macOS
+   # or use ESP-IDF Command Prompt on Windows
+   ```
 
-## Step 7: Test! (30 seconds)
+2. **Navigate to project**:
+   ```bash
+   cd keybot
+   ```
 
-1. Display should light up and show the main screen
+3. **Build the project**:
+   ```bash
+   idf.py build
+   ```
+
+4. **Flash to ESP32**:
+   ```bash
+   # Linux/macOS (replace /dev/ttyUSB0 with your port)
+   idf.py -p /dev/ttyUSB0 flash monitor
+   
+   # Windows (replace COM3 with your port)
+   idf.py -p COM3 flash monitor
+   ```
+
+5. **Monitor output**:
+   - You'll see the bootloader and application logs
+   - Press `Ctrl+]` to exit monitor
+
+## Step 5: Test! (30 seconds)
+
+1. After flashing, check the serial monitor output
 2. You should see:
-   - "ESP32 MacroPad" title
-   - 4 macro buttons (M1-M4)
-   - "BT: Waiting..." in top-right
-   - "SET" button in bottom-right
+   - "ESP32 MacroPad Starting..."
+   - "Initializing NVS..."
+   - "Initializing GPIO..."
+   - "Initializing SPI..."
+   - "Initialization complete!"
 
-3. Touch the screen - it should respond!
+3. Display should show main UI (when fully implemented)
 
-## Step 8: Pair Bluetooth (1 minute)
+## Step 6: Verify Functionality
 
-1. On your computer/phone, open Bluetooth settings
-2. Look for "**ESP32 MacroPad**"
-3. Click to pair
-4. Device should show "BT: Connected" (green)
-
-## Step 9: Try a Macro! (30 seconds)
-
-1. Open a text editor on your paired device
-2. On the MacroPad, touch "M1" button
-3. A green "SEND" button appears
-4. Touch "SEND"
-5. Text should appear in your editor!
-
-## Step 10: Configure Macros (2 minutes)
-
-1. Touch "SET" button (bottom-right)
-2. Touch "Edit M1"
-3. Use on-screen keyboard to type your macro
-4. Press "SAVE"
-5. Try sending it!
+Check the serial monitor for initialization messages:
+```
+I (xxx) MACROPAD: ESP32 MacroPad Starting...
+I (xxx) MACROPAD: ESP-IDF Version: v5.x
+I (xxx) MACROPAD: Initializing NVS...
+I (xxx) MACROPAD: NVS initialized
+I (xxx) MACROPAD: Initializing GPIO...
+I (xxx) MACROPAD: GPIO initialized
+I (xxx) MACROPAD: Initializing SPI...
+I (xxx) MACROPAD: SPI bus initialized
+I (xxx) MACROPAD: Loading macros from NVS...
+I (xxx) MACROPAD: Initialization complete!
+```
 
 ---
 
-## 🎉 Success!
+## 🎉 Basic Setup Complete!
 
-You now have a working Bluetooth macro keyboard! 
+You now have the ESP-IDF project structure set up and running!
+
+## Understanding ESP-IDF Structure
+
+Your project now has:
+```
+keybot/
+├── CMakeLists.txt          # Root build config
+├── main/
+│   ├── CMakeLists.txt      # Main component config
+│   └── main.c              # Main application
+├── components/             # Custom components (optional)
+└── sdkconfig               # Project configuration (generated)
+```
+
+## Next Steps
+
+The current implementation provides the framework. To complete the project:
+
+1. **Implement Display Driver**: Add ILI9341 and XPT2046 support
+2. **Implement BLE HID**: Use Bluedroid stack for keyboard emulation
+3. **Implement UI**: Add touch handling and screen rendering
+4. **Test**: Follow TESTING.md procedures
+
+## ESP-IDF Resources
+
+- **Official Documentation**: https://docs.espressif.com/projects/esp-idf/
+- **API Reference**: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/
+- **Examples**: 
+  - BLE HID: `examples/bluetooth/bluedroid/ble/ble_hid_device_demo`
+  - SPI Display: `examples/peripherals/spi_master`
+  - LCD: `examples/peripherals/lcd/` 
 
 ## What's Next?
 
@@ -143,42 +180,101 @@ You now have a working Bluetooth macro keyboard!
 
 ## Troubleshooting
 
-### Display is blank
-- Check all wire connections
-- Verify you edited `User_Setup.h` correctly
-- Check power (3.3V to VCC)
-- Try the TFT_eSPI example sketches first
+### Build Errors
 
-### Touch doesn't work
-- Verify TOUCH_CS (GPIO 5) is connected
-- Remove any protective film from screen
-- Run touch calibration example from TFT_eSPI
+**Error: IDF_PATH not set**
+```bash
+# Solution: Set up environment
+. ~/esp/esp-idf/export.sh
+```
 
-### Can't find device in Bluetooth
-- Check Serial Monitor (115200 baud) for errors
-- Verify ESP32 BLE Keyboard library is installed
-- Try different USB power source (not a hub)
-- Check that Bluetooth is enabled in Arduino IDE settings
+**Error: CMake not found**
+```bash
+# Install CMake
+sudo apt-get install cmake  # Linux
+brew install cmake          # macOS
+```
 
-### Compile errors
-- Make sure all libraries are installed
-- Verify board is set to "ESP32 Dev Module"
-- Check that ESP32 board support is installed
-- Try updating to latest library versions
+**Error: Python packages missing**
+```bash
+# Install Python requirements
+cd ~/esp/esp-idf
+./install.sh esp32
+```
+
+### Flash Errors
+
+**Error: Failed to connect to ESP32**
+- Check USB cable connection
+- Try different USB port
+- Press and hold BOOT button while flashing
+- Check if correct port is specified
+
+**Error: Permission denied on /dev/ttyUSB0**
+```bash
+# Add user to dialout group (Linux)
+sudo usermod -a -G dialout $USER
+# Log out and log back in
+```
+
+### Runtime Issues
+
+**ESP32 keeps resetting**
+- Check serial monitor for crash logs
+- Verify power supply (use USB 2.0 port or powered hub)
+- Check for short circuits in wiring
+
+**No output in monitor**
+- Verify correct baud rate (115200 default)
+- Try: `idf.py -p /dev/ttyUSB0 monitor`
+- Press EN/RESET button on ESP32
+
+## ESP-IDF Commands Quick Reference
+
+```bash
+# Set environment
+. ~/esp/esp-idf/export.sh
+
+# Full clean build
+idf.py fullclean
+idf.py build
+
+# Configure project
+idf.py menuconfig
+
+# Flash and monitor
+idf.py -p PORT flash monitor
+
+# Erase flash
+idf.py -p PORT erase-flash
+
+# Monitor only
+idf.py -p PORT monitor
+
+# Check IDF version
+idf.py --version
+```
 
 ## Need More Help?
 
 - Read the full [README.md](README.md)
 - Check [HARDWARE.md](HARDWARE.md) for detailed wiring
 - See [TESTING.md](TESTING.md) for test procedures
+- ESP-IDF Documentation: https://docs.espressif.com/projects/esp-idf/
+- ESP32 Forum: https://esp32.com
 - Open an issue on [GitHub](https://github.com/albal/keybot/issues)
 
 ---
 
-**Total Time**: ~15 minutes (if everything goes smoothly!)
+**Total Time**: ~30 minutes (first time with ESP-IDF setup)
 
-**Difficulty**: 🔧 Beginner-friendly
+**Difficulty**: 🔧🔧 Intermediate (requires command line comfort)
 
-**Skills Needed**: Basic computer use, following instructions, connecting wires
+**Skills Needed**: Command line usage, following instructions, basic C knowledge
 
-No soldering required! Perfect for your first ESP32 project.
+**Why ESP-IDF?**
+- Native ESP32 support
+- Better performance and efficiency
+- More control over hardware
+- Industry-standard framework
+- Comprehensive documentation
