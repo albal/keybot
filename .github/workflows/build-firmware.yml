@@ -28,9 +28,7 @@ jobs:
           target: esp32
 
       - name: Build firmware
-        run: |
-          . $IDF_PATH/export.sh
-          idf.py build
+        run: idf.py build
 
       - name: Prepare firmware artifacts
         run: |
@@ -40,7 +38,6 @@ jobs:
           cp build/esp32_macropad.bin firmware-artifacts/
           cp build/esp32_macropad.elf firmware-artifacts/
           # Create a merged firmware binary for easy flashing
-          . $IDF_PATH/export.sh
           esptool.py --chip esp32 merge_bin \
             -o firmware-artifacts/esp32_macropad_merged.bin \
             --flash_mode dio --flash_freq 40m --flash_size 4MB \
