@@ -244,9 +244,31 @@ idf.py -p /dev/ttyUSB0 monitor
 screen /dev/ttyUSB0 115200
 ```
 
-Press the RESET button on the ESP32, and you should see boot messages.
+Press the RESET button on the ESP32, and you should see boot messages including the firmware version.
 
 **Note**: If flashing fails, try holding the BOOT button while connecting the USB cable, then release it when flashing starts.
+
+### Firmware Version Information
+
+The firmware includes automatic version information based on git tags and commits:
+
+- **Released versions** show the tag name (e.g., `v0.1.2`)
+- **Development builds** show the tag, commits since tag, and short SHA (e.g., `v0.1.2-3-gabc1234`)
+- **Uncommitted changes** append `-dirty` to the version
+
+You can see the version in two places:
+1. **Serial logs**: At startup, the firmware logs `Firmware Version: <version>`
+2. **Display**: The version appears on the main screen (when UI is fully implemented)
+
+To check your firmware version:
+```bash
+idf.py -p /dev/ttyUSB0 monitor
+```
+
+Look for a line like:
+```
+I (xxx) MACROPAD: Firmware Version: v0.1.2
+```
 
 ## Usage
 
@@ -256,6 +278,7 @@ Press the RESET button on the ESP32, and you should see boot messages.
 2. Display shows 4 macro buttons labeled "M1", "M2", "M3", "M4"
 3. Default text is "Macro 1", "Macro 2", etc.
 4. Top-right shows Bluetooth status
+5. Firmware version is displayed (when UI is fully implemented)
 
 ### Pairing with Computer
 

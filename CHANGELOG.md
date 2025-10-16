@@ -5,6 +5,16 @@ All notable changes to the ESP32 MacroPad project will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Version information system that displays firmware version in logs and on display
+  - Shows git tag version when built from a tagged release (e.g., v0.1.2)
+  - Shows short commit SHA when no tag is available (e.g., abc1234)
+  - Auto-generated at build time from git repository information
+  - Logged at firmware startup for debugging and support
+  - Displayed on main screen (when UI is fully implemented)
+
 ## [1.0.0] - 2025-10-15
 
 ### Added
