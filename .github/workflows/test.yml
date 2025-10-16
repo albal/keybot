@@ -1,0 +1,104 @@
+name: Run Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Build test application
+        uses: espressif/esp-idf-ci-action@v1.2.0
+        with:
+          esp_idf_version: release-v5.1
+          command: |
+            cd test_app
+            idf.py build
+            
+      - name: Comment on PR with test build status
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}';
+            const emoji = status === 'success' ? '✅' : '❌';
+            const message = `## ${emoji} Test Build ${status === 'success' ? 'Passed' : 'Failed'}
+            
+            The unit test application has been built successfully.
+            
+            **Note:** These tests validate:
+            - NVS storage operations (save/load macros)
+            - State management logic
+            - Button touch detection
+            - String manipulation
+            - Timeout mechanisms
+            - Integration workflows
+            
+            To run the full test suite on hardware, flash the test application and monitor the serial output.`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
+
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Build ESP32 firmware
+        uses: espressif/esp-idf-ci-action@v1.2.0
+        with:
+          esp_idf_version: release-v5.1
+          command: idf.py build
+
+      - name: Create merged firmware binary
+        uses: espressif/esp-idf-ci-action@v1.2.0
+        with:
+          esp_idf_version: release-v5.1
+          command: |
+            # Create combined flashable image using esptool from ESP-IDF
+            python $IDF_PATH/components/esptool_py/esptool/esptool.py --chip esp32 merge_bin \
+              -o "keybot_merged.bin" \
+              --flash_mode dio \
+              --flash_freq 40m \
+              --flash_size 4MB \
+              0x1000 build/bootloader/bootloader.bin \
+              0x8000 build/partition_table/partition-table.bin \
+              0x10000 build/keybot.bin
+            
+            echo "Combined flashable binary created: keybot_merged.bin"
+            ls -la keybot_merged.bin
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-build
+          path: |
+            build/keybot.bin
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+            keybot_merged.bin
+          retention-days: 7

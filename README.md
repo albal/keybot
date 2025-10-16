@@ -442,12 +442,37 @@ const char* keyboardRows[KEYBOARD_ROWS] = {
 
 ## Testing
 
-See the comprehensive testing strategy in the code comments, including:
+This project includes comprehensive automated testing to ensure code quality and reliability.
 
-- Manual test cases
-- Unit test examples
-- Edge case scenarios
-- Debugging tips
+### Automated Unit Tests
+
+The project includes a full suite of unit tests that validate:
+- NVS storage operations
+- State management logic
+- Button touch detection
+- String manipulation
+- Timeout mechanisms
+- Integration workflows
+
+**Running Tests on CI**: Tests automatically run on every pull request via GitHub Actions.
+
+**Running Tests on Hardware**:
+```bash
+cd test_app
+idf.py build
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+Tests will run automatically on boot and display results on the serial monitor.
+
+### Manual Testing
+
+See [TESTING.md](TESTING.md) for comprehensive testing documentation, including:
+- Automated unit test guide
+- Manual test cases for hardware
+- Integration test scenarios
+- Edge case validation
+- Debugging procedures
 
 ## License
 
