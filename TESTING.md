@@ -1,15 +1,97 @@
 # Testing Strategy for ESP32 MacroPad
 
-This document outlines the comprehensive testing strategy for the ESP32 MacroPad firmware, including manual test cases, unit test examples, and debugging procedures.
+This document outlines the comprehensive testing strategy for the ESP32 MacroPad firmware, including automated unit tests, manual test cases, and debugging procedures.
 
 ## Table of Contents
 
-1. [Test Environment Setup](#test-environment-setup)
-2. [Manual Test Cases](#manual-test-cases)
-3. [Unit Test Examples](#unit-test-examples)
-4. [Integration Tests](#integration-tests)
-5. [Edge Cases & Stress Tests](#edge-cases--stress-tests)
-6. [Debugging Procedures](#debugging-procedures)
+1. [Automated Unit Tests](#automated-unit-tests)
+2. [Test Environment Setup](#test-environment-setup)
+3. [Manual Test Cases](#manual-test-cases)
+4. [Unit Test Examples](#unit-test-examples)
+5. [Integration Tests](#integration-tests)
+6. [Edge Cases & Stress Tests](#edge-cases--stress-tests)
+7. [Debugging Procedures](#debugging-procedures)
+
+---
+
+## Automated Unit Tests
+
+### Overview
+
+The project includes a comprehensive suite of automated unit tests that validate core functionality. These tests run on every pull request via GitHub Actions and can also be run manually on hardware.
+
+### Test Coverage
+
+The unit tests validate:
+
+- **NVS Storage Operations**: Save/load macros, empty strings, long strings, special characters, overwrite operations
+- **State Management**: Mode transitions, macro selection, reset operations
+- **Button Logic**: Touch detection within button bounds, boundary conditions
+- **String Manipulation**: Append/remove characters, buffer overflow protection
+- **Timeout Mechanisms**: Selection timeout logic and boundary conditions
+- **Integration Workflows**: Complete save/load and macro selection flows
+
+### Running Tests on CI
+
+Tests automatically run on every pull request. The GitHub Actions workflow:
+1. Builds the test application
+2. Reports build status on the PR
+3. Validates that tests compile correctly
+
+### Running Tests on Hardware
+
+To run tests on actual ESP32 hardware:
+
+1. **Build the test application**:
+   ```bash
+   cd test_app
+   idf.py build
+   ```
+
+2. **Flash to device**:
+   ```bash
+   idf.py -p /dev/ttyUSB0 flash monitor
+   ```
+   Replace `/dev/ttyUSB0` with your actual serial port.
+
+3. **Interactive test menu**:
+   - Tests run automatically on boot
+   - Use the Unity test menu to run specific tests or test groups
+   - Press `[*]` to run all tests
+   - Press `[tag]` to run tests with a specific tag (e.g., `[storage]`, `[state]`)
+
+4. **View results**:
+   - Test results are displayed on the serial monitor
+   - Each test shows PASS/FAIL status
+   - Summary shows total tests run and failures
+
+### Test Tags
+
+Tests are organized by tags for selective execution:
+- `[storage]` - NVS storage tests
+- `[state]` - State management tests
+- `[button]` - Button logic tests
+- `[string]` - String manipulation tests
+- `[timeout]` - Timeout mechanism tests
+- `[integration]` - Integration workflow tests
+
+### Example Test Output
+
+```
+Starting MacroPad Unit Tests
+========================================
+Running NVS: Save and load single macro...
+NVS: Save and load single macro PASSED
+
+Running NVS: Save and load all four macros...
+NVS: Save and load all four macros PASSED
+
+...
+
+-----------------------
+28 Tests 0 Failures 0 Ignored
+OK
+```
 
 ---
 

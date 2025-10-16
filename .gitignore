@@ -42,11 +42,17 @@
 
 # ESP-IDF
 build/
+test_app/build/
 sdkconfig
 sdkconfig.old
 sdkconfig.defaults
+test_app/sdkconfig
+test_app/sdkconfig.old
+test_app/sdkconfig.defaults
 dependencies.lock
 managed_components/
+test_app/dependencies.lock
+test_app/managed_components/
 
 # IDE
 .DS_Store
