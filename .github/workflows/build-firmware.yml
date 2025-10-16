@@ -11,6 +11,11 @@ on:
       - main
   workflow_dispatch:
 
+# Grant the workflow permission to publish packages and create releases
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
