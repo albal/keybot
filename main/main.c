@@ -152,6 +152,7 @@
 #include "nvs.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "version.h"
 
 // Logging tag
 static const char *TAG = "MACROPAD";
@@ -293,6 +294,7 @@ static void ui_task(void *pvParameters);
 void app_main(void)
 {
     ESP_LOGI(TAG, "ESP32 MacroPad Starting...");
+    ESP_LOGI(TAG, "Firmware Version: %s", KEYBOT_VERSION);
     ESP_LOGI(TAG, "ESP-IDF Version: %s", esp_get_idf_version());
     
     // Initialize NVS for persistent storage
@@ -734,9 +736,11 @@ static void draw_main_screen(void)
 {
     ESP_LOGI(TAG, "Display: Drawing main screen...");
     ESP_LOGI(TAG, "Display: Main screen layout - 4 macro buttons + settings button");
+    ESP_LOGI(TAG, "Display: Version: %s", KEYBOT_VERSION);
     
     // TODO: Clear screen
     // TODO: Draw title
+    // TODO: Draw version info (top-left or bottom)
     // TODO: Draw BLE status
     // TODO: Draw 4 macro buttons
     // TODO: Draw Settings button
