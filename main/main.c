@@ -2372,36 +2372,43 @@ static void handle_calibration_touch(uint16_t raw_x, uint16_t raw_y)
         // Point 0 is top-left (30, 70)
         // Point 1 is bottom-right (290, 210)
         
-        // For a 2-point calibration, we need to map:
-        // raw_x[0] -> screen_x = 30
-        // raw_x[1] -> screen_x = 290
-        // raw_y[0] -> screen_y = 70
-        // raw_y[1] -> screen_y = 210
+        // For a 2-point calibration with axes potentially swapped:
+        // In normal operation, we swap axes: raw_y->screen_x, raw_x->screen_y (inverted)
+        // So for calibration:
+        //   Point 0 (screen 30, 70) should map to raw_y[0] and raw_x[0]
+        //   Point 1 (screen 290, 210) should map to raw_y[1] and raw_x[1]
         
-        // The touch controller may have swapped/inverted axes
-        // We'll store the min/max raw values for each axis
+        // Since raw_y maps to screen_x (increasing left to right):
+        // Point 0 has lower screen_x (30), Point 1 has higher screen_x (290)
+        // So raw_y[0] < raw_y[1] normally
         
-        // Determine X axis mapping
-        if (app_state.cal_raw_x[0] < app_state.cal_raw_x[1]) {
-            app_state.calibration.raw_x_min = app_state.cal_raw_x[0];
-            app_state.calibration.raw_x_max = app_state.cal_raw_x[1];
+        // Since raw_x maps to screen_y inverted (SCREEN_HEIGHT - raw_x):
+        // Point 0 has lower screen_y (70), Point 1 has higher screen_y (210)
+        // After inversion: Point 0 should have higher raw_x, Point 1 lower raw_x
+        // So raw_x[0] > raw_x[1] normally
+        
+        // Store the raw values for each axis (we'll handle inversion in map functions)
+        // For raw_y -> screen_x mapping:
+        if (app_state.cal_raw_y[0] < app_state.cal_raw_y[1]) {
+            app_state.calibration.raw_x_min = app_state.cal_raw_y[0];
+            app_state.calibration.raw_x_max = app_state.cal_raw_y[1];
         } else {
-            app_state.calibration.raw_x_min = app_state.cal_raw_x[1];
-            app_state.calibration.raw_x_max = app_state.cal_raw_x[0];
+            app_state.calibration.raw_x_min = app_state.cal_raw_y[1];
+            app_state.calibration.raw_x_max = app_state.cal_raw_y[0];
         }
         
-        // Determine Y axis mapping
-        if (app_state.cal_raw_y[0] < app_state.cal_raw_y[1]) {
-            app_state.calibration.raw_y_min = app_state.cal_raw_y[0];
-            app_state.calibration.raw_y_max = app_state.cal_raw_y[1];
+        // For raw_x -> screen_y mapping (inverted):
+        if (app_state.cal_raw_x[0] < app_state.cal_raw_x[1]) {
+            app_state.calibration.raw_y_min = app_state.cal_raw_x[0];
+            app_state.calibration.raw_y_max = app_state.cal_raw_x[1];
         } else {
-            app_state.calibration.raw_y_min = app_state.cal_raw_y[1];
-            app_state.calibration.raw_y_max = app_state.cal_raw_y[0];
+            app_state.calibration.raw_y_min = app_state.cal_raw_x[1];
+            app_state.calibration.raw_y_max = app_state.cal_raw_x[0];
         }
         
         app_state.calibration.is_calibrated = true;
         
-        ESP_LOGI(TAG, "Calibration calculated: X(%d-%d) Y(%d-%d)",
+        ESP_LOGI(TAG, "Calibration calculated: raw_y->screen_x(%d-%d) raw_x->screen_y(%d-%d)",
                  app_state.calibration.raw_x_min, app_state.calibration.raw_x_max,
                  app_state.calibration.raw_y_min, app_state.calibration.raw_y_max);
         
@@ -2424,30 +2431,31 @@ static void handle_calibration_touch(uint16_t raw_x, uint16_t raw_y)
 }
 
 /**
- * Map raw touch X coordinate to screen coordinate using calibration
+ * Map raw touch coordinate to screen X coordinate using calibration
+ * Note: raw_y maps to screen_x in landscape mode (axes are swapped)
  */
-static uint16_t map_touch_x(uint16_t raw_x)
+static uint16_t map_touch_x(uint16_t raw_y)
 {
     if (!app_state.calibration.is_calibrated) {
         // No calibration, use default mapping
-        // Swap Y to X for landscape mode
-        return (raw_x * SCREEN_WIDTH) / 4095;
+        // raw_y maps to screen_x for landscape mode
+        return (raw_y * SCREEN_WIDTH) / 4095;
     }
     
     // Apply calibration
     // Clamp raw value to calibration range
-    if (raw_x < app_state.calibration.raw_x_min) {
-        raw_x = app_state.calibration.raw_x_min;
+    if (raw_y < app_state.calibration.raw_x_min) {
+        raw_y = app_state.calibration.raw_x_min;
     }
-    if (raw_x > app_state.calibration.raw_x_max) {
-        raw_x = app_state.calibration.raw_x_max;
+    if (raw_y > app_state.calibration.raw_x_max) {
+        raw_y = app_state.calibration.raw_x_max;
     }
     
     // Map to screen coordinates
     uint32_t range = app_state.calibration.raw_x_max - app_state.calibration.raw_x_min;
     if (range == 0) range = 1; // Prevent division by zero
     
-    uint16_t screen_x = ((uint32_t)(raw_x - app_state.calibration.raw_x_min) * SCREEN_WIDTH) / range;
+    uint16_t screen_x = ((uint32_t)(raw_y - app_state.calibration.raw_x_min) * SCREEN_WIDTH) / range;
     
     // Clamp to screen bounds
     if (screen_x >= SCREEN_WIDTH) {
@@ -2458,30 +2466,31 @@ static uint16_t map_touch_x(uint16_t raw_x)
 }
 
 /**
- * Map raw touch Y coordinate to screen coordinate using calibration
+ * Map raw touch coordinate to screen Y coordinate using calibration
+ * Note: raw_x maps to screen_y (inverted) in landscape mode
  */
-static uint16_t map_touch_y(uint16_t raw_y)
+static uint16_t map_touch_y(uint16_t raw_x)
 {
     if (!app_state.calibration.is_calibrated) {
         // No calibration, use default mapping
-        // Invert X to Y for landscape mode
-        return SCREEN_HEIGHT - ((raw_y * SCREEN_HEIGHT) / 4095);
+        // raw_x maps to screen_y inverted for landscape mode
+        return (raw_x * SCREEN_HEIGHT) / 4095;
     }
     
     // Apply calibration
     // Clamp raw value to calibration range
-    if (raw_y < app_state.calibration.raw_y_min) {
-        raw_y = app_state.calibration.raw_y_min;
+    if (raw_x < app_state.calibration.raw_y_min) {
+        raw_x = app_state.calibration.raw_y_min;
     }
-    if (raw_y > app_state.calibration.raw_y_max) {
-        raw_y = app_state.calibration.raw_y_max;
+    if (raw_x > app_state.calibration.raw_y_max) {
+        raw_x = app_state.calibration.raw_y_max;
     }
     
     // Map to screen coordinates
     uint32_t range = app_state.calibration.raw_y_max - app_state.calibration.raw_y_min;
     if (range == 0) range = 1; // Prevent division by zero
     
-    uint16_t screen_y = ((uint32_t)(raw_y - app_state.calibration.raw_y_min) * SCREEN_HEIGHT) / range;
+    uint16_t screen_y = ((uint32_t)(raw_x - app_state.calibration.raw_y_min) * SCREEN_HEIGHT) / range;
     
     // Clamp to screen bounds
     if (screen_y >= SCREEN_HEIGHT) {
