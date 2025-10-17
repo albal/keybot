@@ -247,6 +247,15 @@ static const char *TAG = "MACROPAD";
 #define MAX_MACRO_LEN   512
 #define NVS_NAMESPACE   "macropad"
 
+// Button layout configuration
+#define BUTTON_MARGIN   10
+
+// Touch press duration thresholds (in milliseconds)
+#define SHORT_PRESS_MS      100     // Minimum for valid press
+#define CONFIG_PRESS_MS     5000    // 5 seconds for config mode
+#define BT_CONFIG_PRESS_MS  10000   // 10 seconds for BT config
+#define SELECTION_TIMEOUT_MS 5000   // 5 seconds timeout for macro selection
+
 // =============================================================================
 // OPERATING MODES
 // =============================================================================
@@ -255,8 +264,19 @@ typedef enum {
     MODE_DISPLAY_TEST,  // Display test mode on startup
     MODE_PLAYBACK,      // Main screen - playback mode
     MODE_CONFIG,        // Configuration mode - select macro to edit
-    MODE_EDIT_KEYBOARD  // Editing mode - on-screen keyboard active
+    MODE_EDIT_KEYBOARD, // Editing mode - on-screen keyboard active
+    MODE_BT_CONFIG      // Bluetooth configuration mode
 } app_mode_t;
+
+// Button structure for tracking touch areas
+typedef struct {
+    uint16_t x;
+    uint16_t y;
+    uint16_t width;
+    uint16_t height;
+    uint16_t color;
+    const char* label;
+} button_t;
 
 // =============================================================================
 // GLOBAL STATE
@@ -272,6 +292,16 @@ typedef struct {
     bool shift_active;
     char macros[NUM_MACROS][MAX_MACRO_LEN];
     bool ble_connected;
+    
+    // Touch state tracking
+    uint32_t touch_start_time;
+    bool touch_active;
+    uint16_t touch_start_x;
+    uint16_t touch_start_y;
+    
+    // Button positions (calculated during draw)
+    button_t macro_buttons[NUM_MACROS];
+    button_t confirm_button;
 } app_state_t;
 
 static app_state_t app_state = {
@@ -281,7 +311,11 @@ static app_state_t app_state = {
     .selection_time = 0,
     .editing_macro = -1,
     .shift_active = false,
-    .ble_connected = false
+    .ble_connected = false,
+    .touch_active = false,
+    .touch_start_time = 0,
+    .touch_start_x = 0,
+    .touch_start_y = 0
 };
 
 // SPI device handle for display
@@ -313,6 +347,7 @@ static void draw_keyboard(void);
 static void ili9341_fill_screen(uint16_t color);
 static void ili9341_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color);
 static void ili9341_set_addr_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
+static void ili9341_draw_button(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color, const char* label);
 
 // Display test functions
 static void run_display_test(void);
@@ -325,6 +360,9 @@ static void ble_send_text(const char *text);
 
 // Touch handling
 static void handle_touch_task(void *pvParameters);
+static bool is_point_in_button(uint16_t x, uint16_t y, const button_t *button);
+static int get_touched_macro_button(uint16_t x, uint16_t y);
+static void handle_playback_touch(uint16_t x, uint16_t y, uint32_t press_duration);
 
 // Main tasks
 static void ui_task(void *pvParameters);
@@ -911,6 +949,20 @@ static void ili9341_fill_screen(uint16_t color)
     ili9341_fill_rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, color);
 }
 
+/**
+ * Draw a simple button with a label
+ * For now, just draws a filled rectangle (text rendering to be added later)
+ */
+static void ili9341_draw_button(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color, const char* label)
+{
+    // Draw filled rectangle for button
+    ili9341_fill_rect(x, y, w, h, color);
+    
+    // TODO: Add text rendering for label
+    // For now, just draw the button background
+    (void)label; // Suppress unused parameter warning
+}
+
 // =============================================================================
 // TOUCH CONTROLLER FUNCTIONS
 // =============================================================================
@@ -1186,15 +1238,109 @@ static void draw_main_screen(void)
     ESP_LOGI(TAG, "Display: Main screen layout - 4 macro buttons + settings button");
     ESP_LOGI(TAG, "Display: Version: %s", KEYBOT_VERSION);
     
-    // TODO: Clear screen
-    // TODO: Draw title
-    // TODO: Draw version info (top-left or bottom)
-    // TODO: Draw BLE status
-    // TODO: Draw 4 macro buttons
-    // TODO: Draw Settings button
-    // TODO: Draw Send button if needed
+    // Clear screen to black background
+    ili9341_fill_screen(COLOR_BLACK);
     
-    ESP_LOGI(TAG, "Display: Main screen drawn (stub - full implementation pending)");
+    // Define button layout (2x2 grid of macro buttons)
+    // Screen is 320x240 in landscape mode
+    // Leave some margin around buttons
+    const uint16_t margin = BUTTON_MARGIN;
+    const uint16_t button_width = (SCREEN_WIDTH - 3 * margin) / 2;  // Two buttons horizontally
+    const uint16_t button_height = (SCREEN_HEIGHT - 3 * margin) / 2; // Two buttons vertically
+    
+    // Button positions (quadrant layout as described in requirements)
+    // Store positions in app_state for touch detection
+    
+    // Top-left: Red (M1) - macro 0
+    app_state.macro_buttons[0].x = margin;
+    app_state.macro_buttons[0].y = margin;
+    app_state.macro_buttons[0].width = button_width;
+    app_state.macro_buttons[0].height = button_height;
+    app_state.macro_buttons[0].color = COLOR_RED;
+    app_state.macro_buttons[0].label = "M1";
+    
+    // Top-right: Green (M2) - macro 1
+    app_state.macro_buttons[1].x = SCREEN_WIDTH / 2 + margin / 2;
+    app_state.macro_buttons[1].y = margin;
+    app_state.macro_buttons[1].width = button_width;
+    app_state.macro_buttons[1].height = button_height;
+    app_state.macro_buttons[1].color = COLOR_GREEN;
+    app_state.macro_buttons[1].label = "M2";
+    
+    // Bottom-left: Blue (M3) - macro 2
+    app_state.macro_buttons[2].x = margin;
+    app_state.macro_buttons[2].y = SCREEN_HEIGHT / 2 + margin / 2;
+    app_state.macro_buttons[2].width = button_width;
+    app_state.macro_buttons[2].height = button_height;
+    app_state.macro_buttons[2].color = COLOR_BLUE;
+    app_state.macro_buttons[2].label = "M3";
+    
+    // Bottom-right: Yellow (M4) - macro 3
+    app_state.macro_buttons[3].x = SCREEN_WIDTH / 2 + margin / 2;
+    app_state.macro_buttons[3].y = SCREEN_HEIGHT / 2 + margin / 2;
+    app_state.macro_buttons[3].width = button_width;
+    app_state.macro_buttons[3].height = button_height;
+    app_state.macro_buttons[3].color = COLOR_YELLOW;
+    app_state.macro_buttons[3].label = "M4";
+    
+    // Draw the 4 macro buttons in their respective colors
+    for (int i = 0; i < NUM_MACROS; i++) {
+        // Skip drawing if this button will be replaced by confirm button
+        if (app_state.selected_macro >= 0 && app_state.send_button_visible) {
+            // Determine which button is replaced by confirm
+            int replaced_idx = -1;
+            switch (app_state.selected_macro) {
+                case 0: replaced_idx = 3; break; // Top-left selected, bottom-right replaced
+                case 1: replaced_idx = 2; break; // Top-right selected, bottom-left replaced
+                case 2: replaced_idx = 1; break; // Bottom-left selected, top-right replaced
+                case 3: replaced_idx = 0; break; // Bottom-right selected, top-left replaced
+            }
+            
+            if (i == replaced_idx) {
+                continue; // Skip this button, will be drawn as confirm
+            }
+            
+            if (i == app_state.selected_macro) {
+                // Dim the selected button slightly by drawing a semi-transparent overlay effect
+                // For now, just draw it normally
+                ESP_LOGI(TAG, "Drawing button %d (selected) at (%d, %d)", i, 
+                        app_state.macro_buttons[i].x, app_state.macro_buttons[i].y);
+            }
+        }
+        
+        ESP_LOGI(TAG, "Drawing button %d (%s) at (%d, %d)", i, 
+                app_state.macro_buttons[i].label,
+                app_state.macro_buttons[i].x, app_state.macro_buttons[i].y);
+        ili9341_draw_button(app_state.macro_buttons[i].x, app_state.macro_buttons[i].y,
+                           app_state.macro_buttons[i].width, app_state.macro_buttons[i].height,
+                           app_state.macro_buttons[i].color, app_state.macro_buttons[i].label);
+    }
+    
+    // If a macro is selected, show confirm button in opposite quadrant
+    if (app_state.selected_macro >= 0 && app_state.send_button_visible) {
+        ESP_LOGI(TAG, "Drawing confirm button for selected macro %d", app_state.selected_macro);
+        
+        // Determine opposite quadrant for confirm button
+        int opposite_idx = -1;
+        switch (app_state.selected_macro) {
+            case 0: opposite_idx = 3; break; // Top-left selected, confirm in bottom-right
+            case 1: opposite_idx = 2; break; // Top-right selected, confirm in bottom-left
+            case 2: opposite_idx = 1; break; // Bottom-left selected, confirm in top-right
+            case 3: opposite_idx = 0; break; // Bottom-right selected, confirm in top-left
+        }
+        
+        // Use the opposite button's position for confirm button
+        app_state.confirm_button = app_state.macro_buttons[opposite_idx];
+        app_state.confirm_button.color = COLOR_WHITE;
+        app_state.confirm_button.label = "CONFIRM";
+        
+        // Draw confirm button
+        ili9341_draw_button(app_state.confirm_button.x, app_state.confirm_button.y,
+                           app_state.confirm_button.width, app_state.confirm_button.height,
+                           app_state.confirm_button.color, app_state.confirm_button.label);
+    }
+    
+    ESP_LOGI(TAG, "Display: Main screen drawn successfully");
 }
 
 /**
@@ -1280,6 +1426,97 @@ static void ble_send_text(const char *text)
 // =============================================================================
 
 /**
+ * Check if a point is within a button's bounds
+ */
+static bool is_point_in_button(uint16_t x, uint16_t y, const button_t *button)
+{
+    return (x >= button->x && x < (button->x + button->width) &&
+            y >= button->y && y < (button->y + button->height));
+}
+
+/**
+ * Get which macro button (0-3) is touched, or -1 if none
+ */
+static int get_touched_macro_button(uint16_t x, uint16_t y)
+{
+    for (int i = 0; i < NUM_MACROS; i++) {
+        if (is_point_in_button(x, y, &app_state.macro_buttons[i])) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/**
+ * Handle touch in playback mode
+ */
+static void handle_playback_touch(uint16_t x, uint16_t y, uint32_t press_duration)
+{
+    ESP_LOGI(TAG, "Playback touch at (%d, %d), duration: %lu ms", x, y, press_duration);
+    
+    // Check for long press (5 seconds for config, 10 seconds for BT config)
+    if (press_duration >= BT_CONFIG_PRESS_MS) {
+        ESP_LOGI(TAG, "Long press detected (>10s) - opening BT config");
+        app_state.mode = MODE_BT_CONFIG;
+        // TODO: Draw BT config screen
+        return;
+    } else if (press_duration >= CONFIG_PRESS_MS) {
+        ESP_LOGI(TAG, "Long press detected (>5s) - opening config mode");
+        app_state.mode = MODE_CONFIG;
+        draw_config_screen();
+        return;
+    }
+    
+    // Short press handling
+    if (press_duration < SHORT_PRESS_MS) {
+        return; // Too short, ignore
+    }
+    
+    // Check if confirm button was pressed
+    if (app_state.send_button_visible && is_point_in_button(x, y, &app_state.confirm_button)) {
+        ESP_LOGI(TAG, "Confirm button pressed - sending macro %d", app_state.selected_macro);
+        // TODO: Send the macro via Bluetooth
+        ble_send_text(app_state.macros[app_state.selected_macro]);
+        
+        // Reset selection
+        app_state.selected_macro = -1;
+        app_state.send_button_visible = false;
+        draw_main_screen();
+        return;
+    }
+    
+    // Check which macro button was pressed
+    int touched_button = get_touched_macro_button(x, y);
+    
+    if (touched_button >= 0) {
+        ESP_LOGI(TAG, "Macro button %d pressed", touched_button);
+        
+        if (app_state.selected_macro == touched_button) {
+            // Same button pressed again, cancel selection
+            ESP_LOGI(TAG, "Same button pressed, canceling selection");
+            app_state.selected_macro = -1;
+            app_state.send_button_visible = false;
+        } else {
+            // New button selected, show confirm button
+            ESP_LOGI(TAG, "New button selected: %d", touched_button);
+            app_state.selected_macro = touched_button;
+            app_state.send_button_visible = true;
+            app_state.selection_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        }
+        
+        draw_main_screen();
+    } else {
+        // Touch outside buttons, cancel selection
+        if (app_state.selected_macro >= 0) {
+            ESP_LOGI(TAG, "Touch outside buttons, canceling selection");
+            app_state.selected_macro = -1;
+            app_state.send_button_visible = false;
+            draw_main_screen();
+        }
+    }
+}
+
+/**
  * Touch handling task
  * 
  * Reads touch coordinates from XPT2046 and logs them for debugging.
@@ -1291,33 +1528,86 @@ static void handle_touch_task(void *pvParameters)
     
     uint16_t last_x = 0, last_y = 0;
     bool was_touched = false;
+    uint32_t touch_start_time = 0;
     
     while (1) {
-        uint16_t x, y;
+        uint16_t raw_x, raw_y;
         
-        // Read touch coordinates
-        if (read_touch_coordinates(&x, &y)) {
+        // Read raw touch coordinates from XPT2046
+        if (read_touch_coordinates(&raw_x, &raw_y)) {
             // Touch detected
-            // Only log if coordinates changed significantly or this is a new touch
-            if (!was_touched || abs((int)x - (int)last_x) > 10 || abs((int)y - (int)last_y) > 10) {
-                ESP_LOGI(TAG, "Touch detected - Raw coordinates: X=%d, Y=%d", x, y);
-                last_x = x;
-                last_y = y;
+            if (!was_touched) {
+                // New touch started
+                touch_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                ESP_LOGI(TAG, "Touch started - Raw coordinates: X=%d, Y=%d", raw_x, raw_y);
+                was_touched = true;
+                last_x = raw_x;
+                last_y = raw_y;
+            } else {
+                // Touch continuing
+                // Only log if coordinates changed significantly
+                if (abs((int)raw_x - (int)last_x) > 50 || abs((int)raw_y - (int)last_y) > 50) {
+                    uint32_t duration = (xTaskGetTickCount() * portTICK_PERIOD_MS) - touch_start_time;
+                    ESP_LOGI(TAG, "Touch moved - Raw: X=%d, Y=%d, Duration: %lu ms", raw_x, raw_y, duration);
+                    last_x = raw_x;
+                    last_y = raw_y;
+                }
             }
-            was_touched = true;
-            
-            // TODO: Map raw coordinates to screen coordinates (with calibration)
-            // TODO: Handle touch based on current mode
-            // TODO: Implement button detection and interaction
         } else {
             // No touch detected
             if (was_touched) {
-                ESP_LOGI(TAG, "Touch released");
+                // Touch just released
+                uint32_t press_duration = (xTaskGetTickCount() * portTICK_PERIOD_MS) - touch_start_time;
+                ESP_LOGI(TAG, "Touch released - Duration: %lu ms", press_duration);
+                
+                // Map raw coordinates to screen coordinates
+                // XPT2046 typical range: 0-4095 for 12-bit ADC
+                // Screen: 320x240 in landscape mode
+                // Note: Calibration may be needed for specific hardware
+                // For now, using a simple linear mapping
+                // These values may need adjustment based on your specific display
+                
+                // Swap and invert coordinates for landscape mode
+                // This assumes the touch controller's orientation relative to display
+                uint16_t screen_x = (raw_y * SCREEN_WIDTH) / 4095;
+                uint16_t screen_y = SCREEN_HEIGHT - ((raw_x * SCREEN_HEIGHT) / 4095);
+                
+                // Clamp to screen bounds
+                if (screen_x >= SCREEN_WIDTH) screen_x = SCREEN_WIDTH - 1;
+                if (screen_y >= SCREEN_HEIGHT) screen_y = SCREEN_HEIGHT - 1;
+                
+                ESP_LOGI(TAG, "Mapped touch to screen coordinates: X=%d, Y=%d", screen_x, screen_y);
+                
+                // Handle touch based on current mode
+                switch (app_state.mode) {
+                    case MODE_PLAYBACK:
+                        handle_playback_touch(screen_x, screen_y, press_duration);
+                        break;
+                    
+                    case MODE_CONFIG:
+                        // TODO: Handle config mode touch
+                        ESP_LOGI(TAG, "Config mode touch handling not yet implemented");
+                        break;
+                    
+                    case MODE_EDIT_KEYBOARD:
+                        // TODO: Handle keyboard touch
+                        ESP_LOGI(TAG, "Keyboard mode touch handling not yet implemented");
+                        break;
+                    
+                    case MODE_BT_CONFIG:
+                        // TODO: Handle BT config touch
+                        ESP_LOGI(TAG, "BT config mode touch handling not yet implemented");
+                        break;
+                    
+                    default:
+                        break;
+                }
+                
                 was_touched = false;
             }
         }
         
-        vTaskDelay(pdMS_TO_TICKS(50)); // 20Hz polling (reduced from 100Hz to avoid log spam)
+        vTaskDelay(pdMS_TO_TICKS(50)); // 20Hz polling
     }
 }
 
@@ -1352,7 +1642,7 @@ static void ui_task(void *pvParameters)
         
         // Check for selection timeout (5 seconds)
         if (app_state.selected_macro >= 0 && app_state.send_button_visible) {
-            if (now - app_state.selection_time > 5000) {
+            if (now - app_state.selection_time > SELECTION_TIMEOUT_MS) {
                 ESP_LOGI(TAG, "Selection timeout, clearing");
                 app_state.selected_macro = -1;
                 app_state.send_button_visible = false;
@@ -1360,9 +1650,10 @@ static void ui_task(void *pvParameters)
             }
         }
         
-        // Redraw screen periodically
+        // Redraw screen periodically if needed
         if (now - last_update > 1000) {
-            // Update BLE status or other dynamic elements
+            // Update BLE status or other dynamic elements if needed
+            // For now, just update timestamp
             last_update = now;
         }
         
