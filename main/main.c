@@ -347,6 +347,34 @@ static spi_device_handle_t display_spi;
 static spi_device_handle_t touch_spi;
 
 // =============================================================================
+// KEYBOARD LAYOUTS (Static data to avoid stack allocation)
+// =============================================================================
+
+static const char* kb_alpha_lower[3][10] = {
+    {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
+    {"a", "s", "d", "f", "g", "h", "j", "k", "l", ""},
+    {"z", "x", "c", "v", "b", "n", "m", "", "", ""}
+};
+
+static const char* kb_alpha_upper[3][10] = {
+    {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
+    {"A", "S", "D", "F", "G", "H", "J", "K", "L", ""},
+    {"Z", "X", "C", "V", "B", "N", "M", "", "", ""}
+};
+
+static const char* kb_numbers[3][10] = {
+    {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
+    {"-", "=", "[", "]", "\\", ";", "'", ",", ".", "/"},
+    {"", "", "", "", "", "", "", "", "", ""}
+};
+
+static const char* kb_symbols[3][10] = {
+    {"!", "@", "#", "$", "%", "^", "&", "*", "(", ")"},
+    {"_", "+", "{", "}", "|", ":", "\"", "<", ">", "?"},
+    {"", "", "", "", "", "", "", "", "", ""}
+};
+
+// =============================================================================
 // FUNCTION DECLARATIONS
 // =============================================================================
 
@@ -425,7 +453,7 @@ void app_main(void)
     xTaskCreate(ui_task, "ui_task", 4096, NULL, 5, NULL);
     
     // Create touch handling task
-    xTaskCreate(handle_touch_task, "touch_task", 2048, NULL, 4, NULL);
+    xTaskCreate(handle_touch_task, "touch_task", 4096, NULL, 4, NULL);
     
     ESP_LOGI(TAG, "Initialization complete!");
     
@@ -1457,32 +1485,7 @@ static void draw_keyboard(void)
     ESP_LOGI(TAG, "Current text: %.40s%s", app_state.edit_buffer, 
              strlen(app_state.edit_buffer) > 40 ? "..." : "");
     
-    // Define keyboard layouts for different pages
-    const char* kb_alpha_lower[3][10] = {
-        {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
-        {"a", "s", "d", "f", "g", "h", "j", "k", "l", ""},
-        {"z", "x", "c", "v", "b", "n", "m", "", "", ""}
-    };
-    
-    const char* kb_alpha_upper[3][10] = {
-        {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
-        {"A", "S", "D", "F", "G", "H", "J", "K", "L", ""},
-        {"Z", "X", "C", "V", "B", "N", "M", "", "", ""}
-    };
-    
-    const char* kb_numbers[3][10] = {
-        {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
-        {"-", "=", "[", "]", "\\", ";", "'", ",", ".", "/"},
-        {"", "", "", "", "", "", "", "", "", ""}
-    };
-    
-    const char* kb_symbols[3][10] = {
-        {"!", "@", "#", "$", "%", "^", "&", "*", "(", ")"},
-        {"_", "+", "{", "}", "|", ":", "\"", "<", ">", "?"},
-        {"", "", "", "", "", "", "", "", "", ""}
-    };
-    
-    // Select current keyboard layout
+    // Select current keyboard layout (using static arrays defined at file scope)
     const char* (*current_layout)[10] = NULL;
     switch (app_state.keyboard_page) {
         case KB_PAGE_ALPHA_LOWER:
@@ -1852,33 +1855,8 @@ static void handle_keyboard_touch(uint16_t x, uint16_t y)
         int col = (x - 10) / (KEY_WIDTH + KEY_MARGIN);
         
         if (row >= 0 && row < KEYBOARD_ROWS && col >= 0 && col < KEYBOARD_MAX_COLS) {
-            // Get the character for this key
+            // Get the character for this key (using static arrays defined at file scope)
             const char* ch = NULL;
-            
-            // Define keyboard layouts (same as in draw_keyboard)
-            const char* kb_alpha_lower[3][10] = {
-                {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
-                {"a", "s", "d", "f", "g", "h", "j", "k", "l", ""},
-                {"z", "x", "c", "v", "b", "n", "m", "", "", ""}
-            };
-            
-            const char* kb_alpha_upper[3][10] = {
-                {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
-                {"A", "S", "D", "F", "G", "H", "J", "K", "L", ""},
-                {"Z", "X", "C", "V", "B", "N", "M", "", "", ""}
-            };
-            
-            const char* kb_numbers[3][10] = {
-                {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
-                {"-", "=", "[", "]", "\\", ";", "'", ",", ".", "/"},
-                {"", "", "", "", "", "", "", "", "", ""}
-            };
-            
-            const char* kb_symbols[3][10] = {
-                {"!", "@", "#", "$", "%", "^", "&", "*", "(", ")"},
-                {"_", "+", "{", "}", "|", ":", "\"", "<", ">", "?"},
-                {"", "", "", "", "", "", "", "", "", ""}
-            };
             
             // Select current keyboard layout
             switch (app_state.keyboard_page) {
