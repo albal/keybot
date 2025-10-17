@@ -410,11 +410,11 @@ Accessed via 20-second long press from Playback Mode:
 
 - **Device Name**: Displays the Bluetooth device name (keybot)
 - **Connection Status**: Shows current Bluetooth connection state
-- **PAIR Button**: Initiates Bluetooth pairing mode for connecting to new devices
+- **PAIR Button**: Placeholder for initiating Bluetooth pairing mode (implementation pending)
 - **CLEAR FLASH Button**: Erases all stored data (macros and calibration) from NVS flash memory
 - **BACK Button**: Returns to Playback Mode
 
-**Note**: The PAIR button activates pairing mode, making the device discoverable to nearby Bluetooth devices. Look for "ESP32 MacroPad" in your device's Bluetooth settings.
+**Note**: The PAIR button currently displays a visual confirmation message. Full Bluetooth pairing functionality will be implemented in a future update.
 
 ### Bluetooth HID
 
