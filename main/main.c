@@ -1622,8 +1622,11 @@ static void draw_config_screen(void)
     // Clear screen to black
     ili9341_fill_screen(COLOR_BLACK);
     
-    // Draw title area at top (optional, can add text rendering later)
+    // Draw title area at top
     ili9341_fill_rect(0, 0, SCREEN_WIDTH, 30, COLOR_DARKBLUE);
+    
+    // Draw title text
+    ili9341_draw_string(5, 10, "Configure Macros", COLOR_WHITE, COLOR_DARKBLUE, 1);
     
     // Define button layout - same as main screen but with different behavior
     const uint16_t margin = BUTTON_MARGIN;
@@ -1801,15 +1804,16 @@ static void draw_bt_config_screen(void)
     
     // Draw title area
     ili9341_fill_rect(0, 0, SCREEN_WIDTH, 40, COLOR_DARKBLUE);
-    // TODO: Add text "Bluetooth Settings"
+    ili9341_draw_string(5, 15, "Bluetooth Settings", COLOR_WHITE, COLOR_DARKBLUE, 1);
     
     // Draw device name area
-    ili9341_fill_rect(10, 50, SCREEN_WIDTH - 20, 40, COLOR_GRAY);
-    // TODO: Display "Device: keybot"
+    ili9341_fill_rect(10, 50, SCREEN_WIDTH - 20, 40, COLOR_DARKGRAY);
+    ili9341_draw_string(15, 65, "Device: keybot", COLOR_WHITE, COLOR_DARKGRAY, 1);
     
     // Draw connection status area
-    ili9341_fill_rect(10, 100, SCREEN_WIDTH - 20, 40, COLOR_GRAY);
-    // TODO: Display connection status
+    ili9341_fill_rect(10, 100, SCREEN_WIDTH - 20, 40, COLOR_DARKGRAY);
+    const char* status_text = app_state.ble_connected ? "Status: Connected" : "Status: Disconnected";
+    ili9341_draw_string(15, 115, status_text, COLOR_WHITE, COLOR_DARKGRAY, 1);
     
     // Draw clear flash button (red, prominent)
     uint16_t clear_btn_width = 150;
