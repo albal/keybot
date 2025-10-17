@@ -31,22 +31,35 @@ This project implements a custom Bluetooth HID macro keyboard using an ESP32-WRO
 
 ### Wiring Diagram
 
-Connect the ILI9341 display to the ESP32 as follows:
+**For 2.8inch ESP32-32E Display (QD-TFT2803):**
 
-| ESP32 Pin | ILI9341 Pin | Function |
+This hardware has **two separate SPI buses** - one for display, one for touch.
+
+**Display (ILI9341) - VSPI Bus:**
+
+| ESP32 Pin | Display Pin | Function |
 |-----------|-------------|----------|
-| GPIO 23   | SDI/MOSI    | SPI Data Out |
-| GPIO 19   | SDO/MISO    | SPI Data In |
-| GPIO 18   | SCK         | SPI Clock |
-| GPIO 15   | TFT_CS      | Display Chip Select |
+| GPIO 13   | SDI/MOSI    | SPI Data Out |
+| GPIO 12   | SDO/MISO    | SPI Data In |
+| GPIO 14   | SCK         | SPI Clock |
+| GPIO 15   | CS          | Display Chip Select |
 | GPIO 2    | DC          | Data/Command |
-| GPIO 4    | RESET       | Reset (optional) |
-| GPIO 5    | T_CS        | Touch Chip Select |
+| EN        | RST         | Reset (shared with ESP32) |
+| GPIO 21   | LED         | Backlight |
 | 3.3V      | VCC         | Power |
 | GND       | GND         | Ground |
-| GPIO 21   | LED         | Backlight (optional) |
 
-**Note**: These pins are configurable in the code. Adjust as needed for your hardware.
+**Touch Controller (XPT2046) - HSPI Bus:**
+
+| ESP32 Pin | Touch Pin | Function |
+|-----------|-----------|----------|
+| GPIO 32   | T_DIN     | SPI Data Out |
+| GPIO 39   | T_DO      | SPI Data In (input only) |
+| GPIO 25   | T_CLK     | SPI Clock |
+| GPIO 33   | T_CS      | Touch Chip Select |
+| GPIO 36   | T_IRQ     | Touch Interrupt (input only) |
+
+**Note**: These pins are **FIXED** by the 2.8inch ESP32-32E hardware design and cannot be changed without hardware modifications.
 
 ## Software Requirements
 
