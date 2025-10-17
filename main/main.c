@@ -190,6 +190,9 @@ static const char *TAG = "MACROPAD";
 #define COLOR_DARKBLUE  0x1082
 #define COLOR_GRAY      0x7BEF
 #define COLOR_ORANGE    0xFD20
+#define COLOR_YELLOW    0xFFE0
+#define COLOR_CYAN      0x07FF
+#define COLOR_MAGENTA   0xF81F
 
 // ILI9341 Commands
 #define ILI9341_SWRESET     0x01
@@ -224,6 +227,7 @@ static const char *TAG = "MACROPAD";
 // =============================================================================
 
 typedef enum {
+    MODE_DISPLAY_TEST,  // Display test mode on startup
     MODE_PLAYBACK,      // Main screen - playback mode
     MODE_CONFIG,        // Configuration mode - select macro to edit
     MODE_EDIT_KEYBOARD  // Editing mode - on-screen keyboard active
@@ -246,7 +250,7 @@ typedef struct {
 } app_state_t;
 
 static app_state_t app_state = {
-    .mode = MODE_PLAYBACK,
+    .mode = MODE_DISPLAY_TEST,
     .selected_macro = -1,
     .send_button_visible = false,
     .selection_time = 0,
@@ -257,6 +261,9 @@ static app_state_t app_state = {
 
 // SPI device handle for display
 static spi_device_handle_t display_spi;
+
+// SPI device handle for touch controller
+static spi_device_handle_t touch_spi;
 
 // =============================================================================
 // FUNCTION DECLARATIONS
@@ -276,6 +283,15 @@ static void display_init(void);
 static void draw_main_screen(void);
 static void draw_config_screen(void);
 static void draw_keyboard(void);
+
+// Display helper functions
+static void ili9341_fill_screen(uint16_t color);
+static void ili9341_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color);
+static void ili9341_set_addr_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
+
+// Display test functions
+static void run_display_test(void);
+static bool check_touch_pressed(void);
 
 // Bluetooth functions (to be implemented in bluetooth.c)
 static void ble_init(void);
@@ -727,6 +743,315 @@ static void display_init(void)
     ESP_LOGI(TAG, "Display: Resolution: %dx%d pixels", SCREEN_WIDTH, SCREEN_HEIGHT);
     ESP_LOGI(TAG, "Display: Color depth: 16-bit (RGB565)");
     ESP_LOGI(TAG, "Display: Orientation: Landscape");
+    
+    // Initialize touch controller
+    ESP_LOGI(TAG, "Touch: Initializing XPT2046 touch controller...");
+    spi_device_interface_config_t touch_cfg = {
+        .clock_speed_hz = 2 * 1000 * 1000,  // 2 MHz for touch (slower than display)
+        .mode = 0,                           // SPI mode 0
+        .spics_io_num = PIN_TOUCH_CS,       // Touch CS pin
+        .queue_size = 1,
+        .flags = SPI_DEVICE_NO_DUMMY,
+    };
+    esp_err_t ret = spi_bus_add_device(SPI_HOST, &touch_cfg, &touch_spi);
+    ESP_ERROR_CHECK(ret);
+    ESP_LOGI(TAG, "Touch: XPT2046 initialized (CS: GPIO%d, Clock: 2MHz)", PIN_TOUCH_CS);
+}
+
+/**
+ * Set address window for display operations
+ */
+static void ili9341_set_addr_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
+{
+    // Column address set
+    ili9341_send_cmd(ILI9341_CASET);
+    uint8_t caset[] = {
+        (uint8_t)(x0 >> 8),
+        (uint8_t)(x0 & 0xFF),
+        (uint8_t)(x1 >> 8),
+        (uint8_t)(x1 & 0xFF)
+    };
+    ili9341_send_data(caset, 4);
+    
+    // Page address set
+    ili9341_send_cmd(ILI9341_PASET);
+    uint8_t paset[] = {
+        (uint8_t)(y0 >> 8),
+        (uint8_t)(y0 & 0xFF),
+        (uint8_t)(y1 >> 8),
+        (uint8_t)(y1 & 0xFF)
+    };
+    ili9341_send_data(paset, 4);
+    
+    // Write to RAM
+    ili9341_send_cmd(ILI9341_RAMWR);
+}
+
+/**
+ * Fill a rectangular area with a color
+ */
+static void ili9341_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color)
+{
+    if (x >= SCREEN_WIDTH || y >= SCREEN_HEIGHT) return;
+    if (x + w > SCREEN_WIDTH) w = SCREEN_WIDTH - x;
+    if (y + h > SCREEN_HEIGHT) h = SCREEN_HEIGHT - y;
+    
+    ili9341_set_addr_window(x, y, x + w - 1, y + h - 1);
+    
+    // Prepare color bytes (RGB565 is big-endian)
+    uint8_t color_high = (uint8_t)(color >> 8);
+    uint8_t color_low = (uint8_t)(color & 0xFF);
+    
+    // Send color data for each pixel
+    // For efficiency, we'll send in chunks
+    uint32_t total_pixels = (uint32_t)w * h;
+    uint8_t buffer[512]; // Send 256 pixels at a time
+    
+    // Fill buffer with color pattern
+    for (int i = 0; i < 512; i += 2) {
+        buffer[i] = color_high;
+        buffer[i + 1] = color_low;
+    }
+    
+    // Send data in chunks
+    while (total_pixels > 0) {
+        uint32_t chunk_size = (total_pixels > 256) ? 256 : total_pixels;
+        ili9341_send_data(buffer, chunk_size * 2);
+        total_pixels -= chunk_size;
+    }
+}
+
+/**
+ * Fill entire screen with a color
+ */
+static void ili9341_fill_screen(uint16_t color)
+{
+    ili9341_fill_rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, color);
+}
+
+// =============================================================================
+// TOUCH CONTROLLER FUNCTIONS
+// =============================================================================
+
+/**
+ * Read touch controller Z position (pressure)
+ * Returns true if screen is being touched
+ */
+static bool check_touch_pressed(void)
+{
+    // XPT2046 command to read Z1 position (pressure indicator)
+    // Command format: 0xB1 for Z1 reading
+    uint8_t cmd = 0xB1;
+    uint8_t rx_data[2] = {0};
+    
+    spi_transaction_t t;
+    memset(&t, 0, sizeof(t));
+    t.length = 8;
+    t.tx_buffer = &cmd;
+    t.rx_buffer = rx_data;
+    t.rxlength = 16;
+    
+    esp_err_t ret = spi_device_polling_transmit(touch_spi, &t);
+    if (ret != ESP_OK) {
+        return false;
+    }
+    
+    // Read the Z1 value
+    uint16_t z1 = ((uint16_t)rx_data[0] << 8) | rx_data[1];
+    z1 = (z1 >> 3) & 0xFFF; // 12-bit value
+    
+    // If Z1 is above a threshold, touch is detected
+    // Typical threshold is around 100-200 for touch detection
+    return (z1 > 100);
+}
+
+// =============================================================================
+// DISPLAY TEST SEQUENCE
+// =============================================================================
+
+/**
+ * Run display test sequence
+ * 
+ * This function runs a series of graphical tests to verify display functionality.
+ * Based on common LCD test patterns from: https://www.lcdwiki.com/2.8inch_ESP32-32E_Display
+ * 
+ * Tests include:
+ * - Full screen color fills (Red, Green, Blue, White, Black)
+ * - Color bars
+ * - Checkerboard pattern
+ * - Gradient patterns
+ * 
+ * The test runs continuously until the touchscreen is pressed.
+ */
+static void run_display_test(void)
+{
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "Starting Display Test Sequence");
+    ESP_LOGI(TAG, "Touch screen to exit and start normal operation");
+    ESP_LOGI(TAG, "========================================");
+    
+    bool test_running = true;
+    int test_cycle = 0;
+    
+    while (test_running) {
+        test_cycle++;
+        ESP_LOGI(TAG, "Test cycle %d", test_cycle);
+        
+        // Test 1: Primary Colors
+        ESP_LOGI(TAG, "Test 1: Red screen");
+        ili9341_fill_screen(COLOR_RED);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+        
+        ESP_LOGI(TAG, "Test 1: Green screen");
+        ili9341_fill_screen(COLOR_GREEN);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+        
+        ESP_LOGI(TAG, "Test 1: Blue screen");
+        ili9341_fill_screen(COLOR_BLUE);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+        
+        // Test 2: Secondary Colors
+        ESP_LOGI(TAG, "Test 2: Yellow screen");
+        ili9341_fill_screen(COLOR_YELLOW);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+        
+        ESP_LOGI(TAG, "Test 2: Cyan screen");
+        ili9341_fill_screen(COLOR_CYAN);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+        
+        ESP_LOGI(TAG, "Test 2: Magenta screen");
+        ili9341_fill_screen(COLOR_MAGENTA);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+        
+        // Test 3: Grayscale
+        ESP_LOGI(TAG, "Test 3: White screen");
+        ili9341_fill_screen(COLOR_WHITE);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+        
+        ESP_LOGI(TAG, "Test 3: Gray screen");
+        ili9341_fill_screen(COLOR_GRAY);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+        
+        ESP_LOGI(TAG, "Test 3: Black screen");
+        ili9341_fill_screen(COLOR_BLACK);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+        
+        // Test 4: Color Bars (Vertical)
+        ESP_LOGI(TAG, "Test 4: Vertical color bars");
+        uint16_t bar_colors[] = {COLOR_RED, COLOR_GREEN, COLOR_BLUE, 
+                                  COLOR_YELLOW, COLOR_CYAN, COLOR_MAGENTA, 
+                                  COLOR_WHITE, COLOR_BLACK};
+        int bar_width = SCREEN_WIDTH / 8;
+        for (int i = 0; i < 8; i++) {
+            ili9341_fill_rect(i * bar_width, 0, bar_width, SCREEN_HEIGHT, bar_colors[i]);
+        }
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+        
+        // Test 5: Color Bars (Horizontal)
+        ESP_LOGI(TAG, "Test 5: Horizontal color bars");
+        int bar_height = SCREEN_HEIGHT / 8;
+        for (int i = 0; i < 8; i++) {
+            ili9341_fill_rect(0, i * bar_height, SCREEN_WIDTH, bar_height, bar_colors[i]);
+        }
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+        
+        // Test 6: Checkerboard Pattern
+        ESP_LOGI(TAG, "Test 6: Checkerboard pattern");
+        int check_size = 40;
+        for (int y = 0; y < SCREEN_HEIGHT; y += check_size) {
+            for (int x = 0; x < SCREEN_WIDTH; x += check_size) {
+                uint16_t color = ((x / check_size + y / check_size) % 2) ? COLOR_WHITE : COLOR_BLACK;
+                ili9341_fill_rect(x, y, check_size, check_size, color);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+        
+        // Test 7: Corner rectangles
+        ESP_LOGI(TAG, "Test 7: Corner rectangles");
+        ili9341_fill_screen(COLOR_BLACK);
+        ili9341_fill_rect(0, 0, 80, 60, COLOR_RED);                              // Top-left
+        ili9341_fill_rect(SCREEN_WIDTH - 80, 0, 80, 60, COLOR_GREEN);           // Top-right
+        ili9341_fill_rect(0, SCREEN_HEIGHT - 60, 80, 60, COLOR_BLUE);           // Bottom-left
+        ili9341_fill_rect(SCREEN_WIDTH - 80, SCREEN_HEIGHT - 60, 80, 60, COLOR_YELLOW); // Bottom-right
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+        
+        // Test 8: Center cross pattern
+        ESP_LOGI(TAG, "Test 8: Center cross pattern");
+        ili9341_fill_screen(COLOR_BLACK);
+        ili9341_fill_rect(SCREEN_WIDTH / 2 - 5, 0, 10, SCREEN_HEIGHT, COLOR_WHITE); // Vertical
+        ili9341_fill_rect(0, SCREEN_HEIGHT / 2 - 5, SCREEN_WIDTH, 10, COLOR_WHITE); // Horizontal
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        if (check_touch_pressed()) {
+            test_running = false;
+            break;
+        }
+    }
+    
+    ESP_LOGI(TAG, "========================================");
+    ESP_LOGI(TAG, "Display Test Complete - Touch detected!");
+    ESP_LOGI(TAG, "Starting normal operation...");
+    ESP_LOGI(TAG, "========================================");
+    
+    // Wait for touch release
+    while (check_touch_pressed()) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    vTaskDelay(pdMS_TO_TICKS(200)); // Debounce delay
+    
+    // Clear screen before transitioning to normal mode
+    ili9341_fill_screen(COLOR_BLACK);
 }
 
 /**
@@ -866,6 +1191,16 @@ static void handle_touch_task(void *pvParameters)
 static void ui_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "UI task started");
+    
+    // Check if we should run display test
+    if (app_state.mode == MODE_DISPLAY_TEST) {
+        ESP_LOGI(TAG, "Running display test sequence...");
+        run_display_test();
+        
+        // After test completes, switch to normal playback mode
+        app_state.mode = MODE_PLAYBACK;
+        ESP_LOGI(TAG, "Switched to playback mode");
+    }
     
     // Draw initial screen
     draw_main_screen();
