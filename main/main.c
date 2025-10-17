@@ -317,6 +317,7 @@ static void ili9341_set_addr_window(uint16_t x0, uint16_t y0, uint16_t x1, uint1
 // Display test functions
 static void run_display_test(void);
 static bool check_touch_pressed(void);
+static bool read_touch_coordinates(uint16_t *x, uint16_t *y);
 
 // Bluetooth functions (to be implemented in bluetooth.c)
 static void ble_init(void);
@@ -727,11 +728,11 @@ static void display_init(void)
     ESP_LOGI(TAG, "Display: Power levels set");
     
     // Memory access control (rotation/orientation)
-    ESP_LOGI(TAG, "Display: Setting orientation (landscape)...");
+    ESP_LOGI(TAG, "Display: Setting orientation (landscape, 90 degrees clockwise)...");
     ili9341_send_cmd(ILI9341_MADCTL);
-    uint8_t madctl[] = {0x48}; // Landscape mode
+    uint8_t madctl[] = {0x28}; // Landscape mode, rotated 90 degrees clockwise
     ili9341_send_data(madctl, 1);
-    ESP_LOGI(TAG, "Display: Orientation set to landscape mode");
+    ESP_LOGI(TAG, "Display: Orientation set to landscape mode (90 degrees clockwise)");
     
     // Pixel format
     ESP_LOGI(TAG, "Display: Setting pixel format (RGB565)...");
@@ -915,31 +916,72 @@ static void ili9341_fill_screen(uint16_t color)
 // =============================================================================
 
 /**
+ * Read raw value from XPT2046 touch controller
+ */
+static uint16_t xpt2046_read(uint8_t command)
+{
+    uint8_t tx_data[3] = {command, 0x00, 0x00};
+    uint8_t rx_data[3] = {0};
+    
+    spi_transaction_t t;
+    memset(&t, 0, sizeof(t));
+    t.length = 24;  // 3 bytes = 24 bits
+    t.tx_buffer = tx_data;
+    t.rx_buffer = rx_data;
+    
+    esp_err_t ret = spi_device_polling_transmit(touch_spi, &t);
+    if (ret != ESP_OK) {
+        return 0;
+    }
+    
+    // XPT2046 returns 12-bit value in bits [14:3] of the response
+    uint16_t value = ((uint16_t)rx_data[1] << 8) | rx_data[2];
+    value = (value >> 3) & 0xFFF;
+    
+    return value;
+}
+
+/**
+ * Read touch coordinates from XPT2046
+ * Returns true if touch is detected and coordinates are valid
+ */
+static bool read_touch_coordinates(uint16_t *x, uint16_t *y)
+{
+    // XPT2046 commands:
+    // 0xD0 = Read X position (12-bit, differential mode, power down between conversions)
+    // 0x90 = Read Y position (12-bit, differential mode, power down between conversions)
+    // 0xB0 = Read Z1 position (pressure indicator)
+    
+    // First check if screen is being touched by reading pressure
+    uint16_t z1 = xpt2046_read(0xB1);
+    
+    // If pressure is too low, no valid touch
+    if (z1 < 100) {
+        return false;
+    }
+    
+    // Read X and Y coordinates
+    // We read twice and average to reduce noise
+    uint16_t x1 = xpt2046_read(0xD0);
+    uint16_t x2 = xpt2046_read(0xD0);
+    uint16_t y1 = xpt2046_read(0x90);
+    uint16_t y2 = xpt2046_read(0x90);
+    
+    // Average the readings
+    *x = (x1 + x2) / 2;
+    *y = (y1 + y2) / 2;
+    
+    return true;
+}
+
+/**
  * Read touch controller Z position (pressure)
  * Returns true if screen is being touched
  */
 static bool check_touch_pressed(void)
 {
-    // XPT2046 command to read Z1 position (pressure indicator)
-    // Command format: 0xB1 for Z1 reading
-    uint8_t cmd = 0xB1;
-    uint8_t rx_data[2] = {0};
-    
-    spi_transaction_t t;
-    memset(&t, 0, sizeof(t));
-    t.length = 8;
-    t.tx_buffer = &cmd;
-    t.rx_buffer = rx_data;
-    t.rxlength = 16;
-    
-    esp_err_t ret = spi_device_polling_transmit(touch_spi, &t);
-    if (ret != ESP_OK) {
-        return false;
-    }
-    
-    // Read the Z1 value
-    uint16_t z1 = ((uint16_t)rx_data[0] << 8) | rx_data[1];
-    z1 = (z1 >> 3) & 0xFFF; // 12-bit value
+    // Read Z1 position (pressure indicator)
+    uint16_t z1 = xpt2046_read(0xB1);
     
     // If Z1 is above a threshold, touch is detected
     // Typical threshold is around 100-200 for touch detection
@@ -1240,25 +1282,42 @@ static void ble_send_text(const char *text)
 /**
  * Touch handling task
  * 
- * Note: XPT2046 touch controller requires:
- * - SPI communication
- * - Reading X/Y coordinates
- * - Pressure detection
- * - Calibration
+ * Reads touch coordinates from XPT2046 and logs them for debugging.
+ * Full UI interaction will be implemented later.
  */
 static void handle_touch_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "Touch task started");
     
+    uint16_t last_x = 0, last_y = 0;
+    bool was_touched = false;
+    
     while (1) {
-        // TODO: Read touch controller via SPI
-        // TODO: Check if touch is detected
-        // TODO: Get X/Y coordinates
-        // TODO: Apply calibration
-        // TODO: Debounce
-        // TODO: Handle based on current mode
+        uint16_t x, y;
         
-        vTaskDelay(pdMS_TO_TICKS(10)); // 100Hz polling
+        // Read touch coordinates
+        if (read_touch_coordinates(&x, &y)) {
+            // Touch detected
+            // Only log if coordinates changed significantly or this is a new touch
+            if (!was_touched || abs((int)x - (int)last_x) > 10 || abs((int)y - (int)last_y) > 10) {
+                ESP_LOGI(TAG, "Touch detected - Raw coordinates: X=%d, Y=%d", x, y);
+                last_x = x;
+                last_y = y;
+            }
+            was_touched = true;
+            
+            // TODO: Map raw coordinates to screen coordinates (with calibration)
+            // TODO: Handle touch based on current mode
+            // TODO: Implement button detection and interaction
+        } else {
+            // No touch detected
+            if (was_touched) {
+                ESP_LOGI(TAG, "Touch released");
+                was_touched = false;
+            }
+        }
+        
+        vTaskDelay(pdMS_TO_TICKS(50)); // 20Hz polling (reduced from 100Hz to avoid log spam)
     }
 }
 
