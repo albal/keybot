@@ -214,6 +214,7 @@ static const char *TAG = "MACROPAD";
 #define COLOR_BLUE      0x001F
 #define COLOR_DARKBLUE  0x1082
 #define COLOR_GRAY      0x7BEF
+#define COLOR_DARKGRAY  0x4208  // Darker grey for keyboard keys
 #define COLOR_ORANGE    0xFD20
 #define COLOR_YELLOW    0xFFE0
 #define COLOR_CYAN      0x07FF
@@ -399,6 +400,8 @@ static void ili9341_fill_screen(uint16_t color);
 static void ili9341_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color);
 static void ili9341_set_addr_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
 static void ili9341_draw_button(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color, const char* label);
+static void ili9341_draw_char(uint16_t x, uint16_t y, char c, uint16_t color, uint16_t bg, uint8_t size);
+static void ili9341_draw_string(uint16_t x, uint16_t y, const char* str, uint16_t color, uint16_t bg, uint8_t size);
 
 // Display test functions
 static void run_display_test(void);
@@ -636,6 +639,110 @@ static void save_macro(int index, const char *text)
     
     nvs_close(nvs_handle);
 }
+
+// =============================================================================
+// SIMPLE 5x7 BITMAP FONT
+// =============================================================================
+
+// Simple 5x7 bitmap font for basic ASCII characters (space to ~)
+// Each character is 5 bytes wide, 7 bits tall
+static const uint8_t font5x7[][5] = {
+    {0x00, 0x00, 0x00, 0x00, 0x00}, // space (32)
+    {0x00, 0x00, 0x5F, 0x00, 0x00}, // !
+    {0x00, 0x07, 0x00, 0x07, 0x00}, // "
+    {0x14, 0x7F, 0x14, 0x7F, 0x14}, // #
+    {0x24, 0x2A, 0x7F, 0x2A, 0x12}, // $
+    {0x23, 0x13, 0x08, 0x64, 0x62}, // %
+    {0x36, 0x49, 0x56, 0x20, 0x50}, // &
+    {0x00, 0x08, 0x07, 0x03, 0x00}, // '
+    {0x00, 0x1C, 0x22, 0x41, 0x00}, // (
+    {0x00, 0x41, 0x22, 0x1C, 0x00}, // )
+    {0x2A, 0x1C, 0x7F, 0x1C, 0x2A}, // *
+    {0x08, 0x08, 0x3E, 0x08, 0x08}, // +
+    {0x00, 0x80, 0x70, 0x30, 0x00}, // ,
+    {0x08, 0x08, 0x08, 0x08, 0x08}, // -
+    {0x00, 0x00, 0x60, 0x60, 0x00}, // .
+    {0x20, 0x10, 0x08, 0x04, 0x02}, // /
+    {0x3E, 0x51, 0x49, 0x45, 0x3E}, // 0 (48)
+    {0x00, 0x42, 0x7F, 0x40, 0x00}, // 1
+    {0x72, 0x49, 0x49, 0x49, 0x46}, // 2
+    {0x21, 0x41, 0x49, 0x4D, 0x33}, // 3
+    {0x18, 0x14, 0x12, 0x7F, 0x10}, // 4
+    {0x27, 0x45, 0x45, 0x45, 0x39}, // 5
+    {0x3C, 0x4A, 0x49, 0x49, 0x31}, // 6
+    {0x41, 0x21, 0x11, 0x09, 0x07}, // 7
+    {0x36, 0x49, 0x49, 0x49, 0x36}, // 8
+    {0x46, 0x49, 0x49, 0x29, 0x1E}, // 9
+    {0x00, 0x00, 0x14, 0x00, 0x00}, // :
+    {0x00, 0x40, 0x34, 0x00, 0x00}, // ;
+    {0x00, 0x08, 0x14, 0x22, 0x41}, // <
+    {0x14, 0x14, 0x14, 0x14, 0x14}, // =
+    {0x00, 0x41, 0x22, 0x14, 0x08}, // >
+    {0x02, 0x01, 0x59, 0x09, 0x06}, // ?
+    {0x3E, 0x41, 0x5D, 0x59, 0x4E}, // @ (64)
+    {0x7C, 0x12, 0x11, 0x12, 0x7C}, // A (65)
+    {0x7F, 0x49, 0x49, 0x49, 0x36}, // B
+    {0x3E, 0x41, 0x41, 0x41, 0x22}, // C
+    {0x7F, 0x41, 0x41, 0x41, 0x3E}, // D
+    {0x7F, 0x49, 0x49, 0x49, 0x41}, // E
+    {0x7F, 0x09, 0x09, 0x09, 0x01}, // F
+    {0x3E, 0x41, 0x41, 0x51, 0x73}, // G
+    {0x7F, 0x08, 0x08, 0x08, 0x7F}, // H
+    {0x00, 0x41, 0x7F, 0x41, 0x00}, // I
+    {0x20, 0x40, 0x41, 0x3F, 0x01}, // J
+    {0x7F, 0x08, 0x14, 0x22, 0x41}, // K
+    {0x7F, 0x40, 0x40, 0x40, 0x40}, // L
+    {0x7F, 0x02, 0x1C, 0x02, 0x7F}, // M
+    {0x7F, 0x04, 0x08, 0x10, 0x7F}, // N
+    {0x3E, 0x41, 0x41, 0x41, 0x3E}, // O
+    {0x7F, 0x09, 0x09, 0x09, 0x06}, // P
+    {0x3E, 0x41, 0x51, 0x21, 0x5E}, // Q
+    {0x7F, 0x09, 0x19, 0x29, 0x46}, // R
+    {0x26, 0x49, 0x49, 0x49, 0x32}, // S
+    {0x03, 0x01, 0x7F, 0x01, 0x03}, // T
+    {0x3F, 0x40, 0x40, 0x40, 0x3F}, // U
+    {0x1F, 0x20, 0x40, 0x20, 0x1F}, // V
+    {0x3F, 0x40, 0x38, 0x40, 0x3F}, // W
+    {0x63, 0x14, 0x08, 0x14, 0x63}, // X
+    {0x03, 0x04, 0x78, 0x04, 0x03}, // Y
+    {0x61, 0x59, 0x49, 0x4D, 0x43}, // Z
+    {0x00, 0x7F, 0x41, 0x41, 0x41}, // [
+    {0x02, 0x04, 0x08, 0x10, 0x20}, // backslash
+    {0x00, 0x41, 0x41, 0x41, 0x7F}, // ]
+    {0x04, 0x02, 0x01, 0x02, 0x04}, // ^
+    {0x40, 0x40, 0x40, 0x40, 0x40}, // _
+    {0x00, 0x03, 0x07, 0x08, 0x00}, // ` (96)
+    {0x20, 0x54, 0x54, 0x78, 0x40}, // a (97)
+    {0x7F, 0x28, 0x44, 0x44, 0x38}, // b
+    {0x38, 0x44, 0x44, 0x44, 0x28}, // c
+    {0x38, 0x44, 0x44, 0x28, 0x7F}, // d
+    {0x38, 0x54, 0x54, 0x54, 0x18}, // e
+    {0x00, 0x08, 0x7E, 0x09, 0x02}, // f
+    {0x18, 0xA4, 0xA4, 0x9C, 0x78}, // g
+    {0x7F, 0x08, 0x04, 0x04, 0x78}, // h
+    {0x00, 0x44, 0x7D, 0x40, 0x00}, // i
+    {0x20, 0x40, 0x40, 0x3D, 0x00}, // j
+    {0x7F, 0x10, 0x28, 0x44, 0x00}, // k
+    {0x00, 0x41, 0x7F, 0x40, 0x00}, // l
+    {0x7C, 0x04, 0x78, 0x04, 0x78}, // m
+    {0x7C, 0x08, 0x04, 0x04, 0x78}, // n
+    {0x38, 0x44, 0x44, 0x44, 0x38}, // o
+    {0xFC, 0x18, 0x24, 0x24, 0x18}, // p
+    {0x18, 0x24, 0x24, 0x18, 0xFC}, // q
+    {0x7C, 0x08, 0x04, 0x04, 0x08}, // r
+    {0x48, 0x54, 0x54, 0x54, 0x24}, // s
+    {0x04, 0x04, 0x3F, 0x44, 0x24}, // t
+    {0x3C, 0x40, 0x40, 0x20, 0x7C}, // u
+    {0x1C, 0x20, 0x40, 0x20, 0x1C}, // v
+    {0x3C, 0x40, 0x30, 0x40, 0x3C}, // w
+    {0x44, 0x28, 0x10, 0x28, 0x44}, // x
+    {0x4C, 0x90, 0x90, 0x90, 0x7C}, // y
+    {0x44, 0x64, 0x54, 0x4C, 0x44}, // z
+    {0x00, 0x08, 0x36, 0x41, 0x00}, // {
+    {0x00, 0x00, 0x77, 0x00, 0x00}, // |
+    {0x00, 0x41, 0x36, 0x08, 0x00}, // }
+    {0x02, 0x01, 0x02, 0x04, 0x02}, // ~ (126)
+};
 
 // =============================================================================
 // DISPLAY FUNCTIONS (Stub implementations - to be completed)
@@ -1004,17 +1111,124 @@ static void ili9341_fill_screen(uint16_t color)
 }
 
 /**
+ * Draw a single character at position (x, y)
+ * c: character to draw
+ * color: foreground color (RGB565)
+ * bg: background color (RGB565)
+ * size: scaling factor (1 = 5x7 pixels, 2 = 10x14 pixels, etc.)
+ */
+static void ili9341_draw_char(uint16_t x, uint16_t y, char c, uint16_t color, uint16_t bg, uint8_t size)
+{
+    if (c < 32 || c > 126) {
+        c = ' '; // Replace unsupported characters with space
+    }
+    
+    // Get character from font table (offset by 32 for space)
+    const uint8_t* glyph = font5x7[c - 32];
+    
+    // Draw character bitmap
+    for (uint8_t col = 0; col < 5; col++) {
+        uint8_t line = glyph[col];
+        for (uint8_t row = 0; row < 7; row++) {
+            if (line & (1 << row)) {
+                // Draw foreground pixel(s)
+                if (size == 1) {
+                    ili9341_fill_rect(x + col, y + row, 1, 1, color);
+                } else {
+                    ili9341_fill_rect(x + col * size, y + row * size, size, size, color);
+                }
+            } else if (bg != color) {
+                // Draw background pixel(s)
+                if (size == 1) {
+                    ili9341_fill_rect(x + col, y + row, 1, 1, bg);
+                } else {
+                    ili9341_fill_rect(x + col * size, y + row * size, size, size, bg);
+                }
+            }
+        }
+    }
+    
+    // Draw spacing column (background)
+    if (bg != color) {
+        if (size == 1) {
+            ili9341_fill_rect(x + 5, y, 1, 7, bg);
+        } else {
+            ili9341_fill_rect(x + 5 * size, y, size, 7 * size, bg);
+        }
+    }
+}
+
+/**
+ * Draw a string at position (x, y)
+ * str: null-terminated string to draw
+ * color: foreground color (RGB565)
+ * bg: background color (RGB565)
+ * size: scaling factor (1 = 5x7 pixels per char, 2 = 10x14 pixels, etc.)
+ */
+static void ili9341_draw_string(uint16_t x, uint16_t y, const char* str, uint16_t color, uint16_t bg, uint8_t size)
+{
+    if (!str) return;
+    
+    uint16_t cursor_x = x;
+    uint16_t cursor_y = y;
+    
+    while (*str) {
+        // Check for newline
+        if (*str == '\n') {
+            cursor_x = x;
+            cursor_y += 8 * size; // Move down by character height + spacing
+            str++;
+            continue;
+        }
+        
+        // Check if character would go off screen
+        if (cursor_x + 6 * size > SCREEN_WIDTH) {
+            cursor_x = x;
+            cursor_y += 8 * size; // Auto wrap to next line
+        }
+        
+        if (cursor_y + 7 * size > SCREEN_HEIGHT) {
+            break; // Stop if we've reached bottom of screen
+        }
+        
+        // Draw character
+        ili9341_draw_char(cursor_x, cursor_y, *str, color, bg, size);
+        
+        // Move cursor
+        cursor_x += 6 * size; // 5 pixels wide + 1 pixel spacing
+        str++;
+    }
+}
+
+/**
  * Draw a simple button with a label
- * For now, just draws a filled rectangle (text rendering to be added later)
  */
 static void ili9341_draw_button(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color, const char* label)
 {
     // Draw filled rectangle for button
     ili9341_fill_rect(x, y, w, h, color);
     
-    // TODO: Add text rendering for label
-    // For now, just draw the button background
-    (void)label; // Suppress unused parameter warning
+    // Draw label text if provided
+    if (label && label[0] != '\0') {
+        // Calculate text position (centered)
+        // Font is 5 pixels wide per character + 1 pixel spacing = 6 pixels per char
+        uint16_t text_width = strlen(label) * 6;
+        uint16_t text_height = 7; // Font height
+        
+        // Center text in button
+        uint16_t text_x = x + (w > text_width ? (w - text_width) / 2 : 2);
+        uint16_t text_y = y + (h > text_height ? (h - text_height) / 2 : 2);
+        
+        // Choose text color based on button color brightness
+        // Simple heuristic: if button is dark, use white text; if bright, use black text
+        uint16_t text_color = COLOR_WHITE;
+        if (color == COLOR_WHITE || color == COLOR_YELLOW || color == COLOR_CYAN || color == COLOR_GREEN) {
+            text_color = COLOR_BLACK;
+        }
+        
+        // Draw text
+        ili9341_draw_string(text_x, text_y, label, text_color, color, 1);
+    }
 }
 
 // =============================================================================
@@ -1408,8 +1622,11 @@ static void draw_config_screen(void)
     // Clear screen to black
     ili9341_fill_screen(COLOR_BLACK);
     
-    // Draw title area at top (optional, can add text rendering later)
+    // Draw title area at top
     ili9341_fill_rect(0, 0, SCREEN_WIDTH, 30, COLOR_DARKBLUE);
+    
+    // Draw title text
+    ili9341_draw_string(5, 10, "Configure Macros", COLOR_WHITE, COLOR_DARKBLUE, 1);
     
     // Define button layout - same as main screen but with different behavior
     const uint16_t margin = BUTTON_MARGIN;
@@ -1478,10 +1695,36 @@ static void draw_keyboard(void)
     
     // Draw title/text input area at top (showing what's been typed)
     ili9341_fill_rect(0, 0, SCREEN_WIDTH, 50, COLOR_DARKBLUE);
-    // TODO: Add text rendering to show edit_buffer content
     
-    // Draw preview of current text (just a placeholder for now)
-    // Text rendering will be added later
+    // Display the edit buffer text (with scrolling if needed)
+    // Show up to 50 characters (approx 50*6 = 300 pixels at size 1)
+    if (strlen(app_state.edit_buffer) > 0) {
+        // Draw text starting from position 5, 5
+        ili9341_draw_string(5, 5, app_state.edit_buffer, COLOR_WHITE, COLOR_DARKBLUE, 1);
+        
+        // Draw cursor (blinking effect simulation - just show as underscore at end)
+        if (app_state.edit_buffer_len < MAX_MACRO_LEN - 1) {
+            uint16_t cursor_x = 5 + app_state.edit_buffer_len * 6;
+            if (cursor_x < SCREEN_WIDTH - 6) {
+                ili9341_draw_char(cursor_x, 5, '_', COLOR_YELLOW, COLOR_DARKBLUE, 1);
+            }
+        }
+    } else {
+        // Show placeholder text
+        ili9341_draw_string(5, 5, "Enter text...", COLOR_GRAY, COLOR_DARKBLUE, 1);
+    }
+    
+    // Show character count
+    char count_str[20];
+    snprintf(count_str, sizeof(count_str), "%d/%d", app_state.edit_buffer_len, MAX_MACRO_LEN - 1);
+    ili9341_draw_string(5, 20, count_str, COLOR_GRAY, COLOR_DARKBLUE, 1);
+    
+    // Draw macro name at top (which macro is being edited)
+    char title_str[30];
+    snprintf(title_str, sizeof(title_str), "Editing: M%d", app_state.editing_macro + 1);
+    uint16_t title_x = SCREEN_WIDTH - strlen(title_str) * 6 - 5;
+    ili9341_draw_string(title_x, 5, title_str, COLOR_YELLOW, COLOR_DARKBLUE, 1);
+    
     ESP_LOGI(TAG, "Current text: %.40s%s", app_state.edit_buffer, 
              strlen(app_state.edit_buffer) > 40 ? "..." : "");
     
@@ -1502,16 +1745,16 @@ static void draw_keyboard(void)
             break;
     }
     
-    // Draw keyboard keys
+    // Draw keyboard keys with white text on darker grey background
     uint16_t y_pos = KEYBOARD_START_Y;
     for (int row = 0; row < KEYBOARD_ROWS; row++) {
         uint16_t x_pos = 10;
         
         for (int col = 0; col < KEYBOARD_MAX_COLS; col++) {
             if (strlen(current_layout[row][col]) > 0) {
-                // Draw key
+                // Draw key with darker grey background
                 ili9341_draw_button(x_pos, y_pos, KEY_WIDTH, KEY_HEIGHT, 
-                                   COLOR_GRAY, current_layout[row][col]);
+                                   COLOR_DARKGRAY, current_layout[row][col]);
             }
             x_pos += KEY_WIDTH + KEY_MARGIN;
         }
@@ -1530,7 +1773,7 @@ static void draw_keyboard(void)
     }
     ili9341_draw_button(10, ctrl_y, 50, KEY_HEIGHT, COLOR_DARKBLUE, page_label);
     
-    // Shift button (for uppercase/lowercase)
+    // Shift button (for uppercase/lowercase) - only show for alpha pages
     if (app_state.keyboard_page == KB_PAGE_ALPHA_LOWER || 
         app_state.keyboard_page == KB_PAGE_ALPHA_UPPER) {
         const char* shift_label = app_state.keyboard_page == KB_PAGE_ALPHA_UPPER ? "abc" : "ABC";
@@ -1538,12 +1781,12 @@ static void draw_keyboard(void)
     }
     
     // Space bar
-    ili9341_draw_button(120, ctrl_y, 80, KEY_HEIGHT, COLOR_DARKBLUE, "SPACE");
+    ili9341_draw_button(120, ctrl_y, 80, KEY_HEIGHT, COLOR_DARKGRAY, "SPACE");
     
-    // Backspace
+    // Backspace (red button)
     ili9341_draw_button(205, ctrl_y, 50, KEY_HEIGHT, COLOR_RED, "BKSP");
     
-    // Save button
+    // Save button (green button)
     ili9341_draw_button(260, ctrl_y, 50, KEY_HEIGHT, COLOR_GREEN, "SAVE");
     
     ESP_LOGI(TAG, "Display: Keyboard drawn successfully (page: %d)", app_state.keyboard_page);
@@ -1561,15 +1804,16 @@ static void draw_bt_config_screen(void)
     
     // Draw title area
     ili9341_fill_rect(0, 0, SCREEN_WIDTH, 40, COLOR_DARKBLUE);
-    // TODO: Add text "Bluetooth Settings"
+    ili9341_draw_string(5, 15, "Bluetooth Settings", COLOR_WHITE, COLOR_DARKBLUE, 1);
     
     // Draw device name area
-    ili9341_fill_rect(10, 50, SCREEN_WIDTH - 20, 40, COLOR_GRAY);
-    // TODO: Display "Device: keybot"
+    ili9341_fill_rect(10, 50, SCREEN_WIDTH - 20, 40, COLOR_DARKGRAY);
+    ili9341_draw_string(15, 65, "Device: keybot", COLOR_WHITE, COLOR_DARKGRAY, 1);
     
     // Draw connection status area
-    ili9341_fill_rect(10, 100, SCREEN_WIDTH - 20, 40, COLOR_GRAY);
-    // TODO: Display connection status
+    ili9341_fill_rect(10, 100, SCREEN_WIDTH - 20, 40, COLOR_DARKGRAY);
+    const char* status_text = app_state.ble_connected ? "Status: Connected" : "Status: Disconnected";
+    ili9341_draw_string(15, 115, status_text, COLOR_WHITE, COLOR_DARKGRAY, 1);
     
     // Draw clear flash button (red, prominent)
     uint16_t clear_btn_width = 150;
