@@ -247,6 +247,23 @@ static const char *TAG = "MACROPAD";
 #define MAX_MACRO_LEN   512
 #define NVS_NAMESPACE   "macropad"
 
+// Button layout configuration
+#define BUTTON_MARGIN   10
+
+// Touch press duration thresholds (in milliseconds)
+#define SHORT_PRESS_MS      100     // Minimum for valid press
+#define CONFIG_PRESS_MS     5000    // 5 seconds for config mode
+#define BT_CONFIG_PRESS_MS  10000   // 10 seconds for BT config
+#define SELECTION_TIMEOUT_MS 5000   // 5 seconds timeout for macro selection
+
+// Keyboard configuration
+#define KEYBOARD_ROWS 3
+#define KEYBOARD_MAX_COLS 10
+#define KEY_WIDTH 28
+#define KEY_HEIGHT 30
+#define KEY_MARGIN 2
+#define KEYBOARD_START_Y 80
+
 // =============================================================================
 // OPERATING MODES
 // =============================================================================
@@ -255,8 +272,27 @@ typedef enum {
     MODE_DISPLAY_TEST,  // Display test mode on startup
     MODE_PLAYBACK,      // Main screen - playback mode
     MODE_CONFIG,        // Configuration mode - select macro to edit
-    MODE_EDIT_KEYBOARD  // Editing mode - on-screen keyboard active
+    MODE_EDIT_KEYBOARD, // Editing mode - on-screen keyboard active
+    MODE_BT_CONFIG      // Bluetooth configuration mode
 } app_mode_t;
+
+// Keyboard page types
+typedef enum {
+    KB_PAGE_ALPHA_LOWER,  // Lowercase letters
+    KB_PAGE_ALPHA_UPPER,  // Uppercase letters
+    KB_PAGE_NUMBERS,      // Numbers and common symbols
+    KB_PAGE_SYMBOLS       // Additional symbols
+} keyboard_page_t;
+
+// Button structure for tracking touch areas
+typedef struct {
+    uint16_t x;
+    uint16_t y;
+    uint16_t width;
+    uint16_t height;
+    uint16_t color;
+    const char* label;
+} button_t;
 
 // =============================================================================
 // GLOBAL STATE
@@ -272,6 +308,20 @@ typedef struct {
     bool shift_active;
     char macros[NUM_MACROS][MAX_MACRO_LEN];
     bool ble_connected;
+    
+    // Touch state tracking
+    uint32_t touch_start_time;
+    bool touch_active;
+    uint16_t touch_start_x;
+    uint16_t touch_start_y;
+    
+    // Button positions (calculated during draw)
+    button_t macro_buttons[NUM_MACROS];
+    button_t confirm_button;
+    
+    // Keyboard state
+    keyboard_page_t keyboard_page;
+    int edit_buffer_len;
 } app_state_t;
 
 static app_state_t app_state = {
@@ -281,7 +331,13 @@ static app_state_t app_state = {
     .selection_time = 0,
     .editing_macro = -1,
     .shift_active = false,
-    .ble_connected = false
+    .ble_connected = false,
+    .touch_active = false,
+    .touch_start_time = 0,
+    .touch_start_x = 0,
+    .touch_start_y = 0,
+    .keyboard_page = KB_PAGE_ALPHA_LOWER,
+    .edit_buffer_len = 0
 };
 
 // SPI device handle for display
@@ -308,11 +364,13 @@ static void display_init(void);
 static void draw_main_screen(void);
 static void draw_config_screen(void);
 static void draw_keyboard(void);
+static void draw_bt_config_screen(void);
 
 // Display helper functions
 static void ili9341_fill_screen(uint16_t color);
 static void ili9341_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color);
 static void ili9341_set_addr_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1);
+static void ili9341_draw_button(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color, const char* label);
 
 // Display test functions
 static void run_display_test(void);
@@ -325,6 +383,12 @@ static void ble_send_text(const char *text);
 
 // Touch handling
 static void handle_touch_task(void *pvParameters);
+static bool is_point_in_button(uint16_t x, uint16_t y, const button_t *button);
+static int get_touched_macro_button(uint16_t x, uint16_t y);
+static void handle_playback_touch(uint16_t x, uint16_t y, uint32_t press_duration);
+static void handle_config_touch(uint16_t x, uint16_t y);
+static void handle_keyboard_touch(uint16_t x, uint16_t y);
+static void handle_bt_config_touch(uint16_t x, uint16_t y);
 
 // Main tasks
 static void ui_task(void *pvParameters);
@@ -911,6 +975,20 @@ static void ili9341_fill_screen(uint16_t color)
     ili9341_fill_rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, color);
 }
 
+/**
+ * Draw a simple button with a label
+ * For now, just draws a filled rectangle (text rendering to be added later)
+ */
+static void ili9341_draw_button(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color, const char* label)
+{
+    // Draw filled rectangle for button
+    ili9341_fill_rect(x, y, w, h, color);
+    
+    // TODO: Add text rendering for label
+    // For now, just draw the button background
+    (void)label; // Suppress unused parameter warning
+}
+
 // =============================================================================
 // TOUCH CONTROLLER FUNCTIONS
 // =============================================================================
@@ -1186,15 +1264,109 @@ static void draw_main_screen(void)
     ESP_LOGI(TAG, "Display: Main screen layout - 4 macro buttons + settings button");
     ESP_LOGI(TAG, "Display: Version: %s", KEYBOT_VERSION);
     
-    // TODO: Clear screen
-    // TODO: Draw title
-    // TODO: Draw version info (top-left or bottom)
-    // TODO: Draw BLE status
-    // TODO: Draw 4 macro buttons
-    // TODO: Draw Settings button
-    // TODO: Draw Send button if needed
+    // Clear screen to black background
+    ili9341_fill_screen(COLOR_BLACK);
     
-    ESP_LOGI(TAG, "Display: Main screen drawn (stub - full implementation pending)");
+    // Define button layout (2x2 grid of macro buttons)
+    // Screen is 320x240 in landscape mode
+    // Leave some margin around buttons
+    const uint16_t margin = BUTTON_MARGIN;
+    const uint16_t button_width = (SCREEN_WIDTH - 3 * margin) / 2;  // Two buttons horizontally
+    const uint16_t button_height = (SCREEN_HEIGHT - 3 * margin) / 2; // Two buttons vertically
+    
+    // Button positions (quadrant layout as described in requirements)
+    // Store positions in app_state for touch detection
+    
+    // Top-left: Red (M1) - macro 0
+    app_state.macro_buttons[0].x = margin;
+    app_state.macro_buttons[0].y = margin;
+    app_state.macro_buttons[0].width = button_width;
+    app_state.macro_buttons[0].height = button_height;
+    app_state.macro_buttons[0].color = COLOR_RED;
+    app_state.macro_buttons[0].label = "M1";
+    
+    // Top-right: Green (M2) - macro 1
+    app_state.macro_buttons[1].x = SCREEN_WIDTH / 2 + margin / 2;
+    app_state.macro_buttons[1].y = margin;
+    app_state.macro_buttons[1].width = button_width;
+    app_state.macro_buttons[1].height = button_height;
+    app_state.macro_buttons[1].color = COLOR_GREEN;
+    app_state.macro_buttons[1].label = "M2";
+    
+    // Bottom-left: Blue (M3) - macro 2
+    app_state.macro_buttons[2].x = margin;
+    app_state.macro_buttons[2].y = SCREEN_HEIGHT / 2 + margin / 2;
+    app_state.macro_buttons[2].width = button_width;
+    app_state.macro_buttons[2].height = button_height;
+    app_state.macro_buttons[2].color = COLOR_BLUE;
+    app_state.macro_buttons[2].label = "M3";
+    
+    // Bottom-right: Yellow (M4) - macro 3
+    app_state.macro_buttons[3].x = SCREEN_WIDTH / 2 + margin / 2;
+    app_state.macro_buttons[3].y = SCREEN_HEIGHT / 2 + margin / 2;
+    app_state.macro_buttons[3].width = button_width;
+    app_state.macro_buttons[3].height = button_height;
+    app_state.macro_buttons[3].color = COLOR_YELLOW;
+    app_state.macro_buttons[3].label = "M4";
+    
+    // Draw the 4 macro buttons in their respective colors
+    for (int i = 0; i < NUM_MACROS; i++) {
+        // Skip drawing if this button will be replaced by confirm button
+        if (app_state.selected_macro >= 0 && app_state.send_button_visible) {
+            // Determine which button is replaced by confirm
+            int replaced_idx = -1;
+            switch (app_state.selected_macro) {
+                case 0: replaced_idx = 3; break; // Top-left selected, bottom-right replaced
+                case 1: replaced_idx = 2; break; // Top-right selected, bottom-left replaced
+                case 2: replaced_idx = 1; break; // Bottom-left selected, top-right replaced
+                case 3: replaced_idx = 0; break; // Bottom-right selected, top-left replaced
+            }
+            
+            if (i == replaced_idx) {
+                continue; // Skip this button, will be drawn as confirm
+            }
+            
+            if (i == app_state.selected_macro) {
+                // Dim the selected button slightly by drawing a semi-transparent overlay effect
+                // For now, just draw it normally
+                ESP_LOGI(TAG, "Drawing button %d (selected) at (%d, %d)", i, 
+                        app_state.macro_buttons[i].x, app_state.macro_buttons[i].y);
+            }
+        }
+        
+        ESP_LOGI(TAG, "Drawing button %d (%s) at (%d, %d)", i, 
+                app_state.macro_buttons[i].label,
+                app_state.macro_buttons[i].x, app_state.macro_buttons[i].y);
+        ili9341_draw_button(app_state.macro_buttons[i].x, app_state.macro_buttons[i].y,
+                           app_state.macro_buttons[i].width, app_state.macro_buttons[i].height,
+                           app_state.macro_buttons[i].color, app_state.macro_buttons[i].label);
+    }
+    
+    // If a macro is selected, show confirm button in opposite quadrant
+    if (app_state.selected_macro >= 0 && app_state.send_button_visible) {
+        ESP_LOGI(TAG, "Drawing confirm button for selected macro %d", app_state.selected_macro);
+        
+        // Determine opposite quadrant for confirm button
+        int opposite_idx = -1;
+        switch (app_state.selected_macro) {
+            case 0: opposite_idx = 3; break; // Top-left selected, confirm in bottom-right
+            case 1: opposite_idx = 2; break; // Top-right selected, confirm in bottom-left
+            case 2: opposite_idx = 1; break; // Bottom-left selected, confirm in top-right
+            case 3: opposite_idx = 0; break; // Bottom-right selected, confirm in top-left
+        }
+        
+        // Use the opposite button's position for confirm button
+        app_state.confirm_button = app_state.macro_buttons[opposite_idx];
+        app_state.confirm_button.color = COLOR_WHITE;
+        app_state.confirm_button.label = "CONFIRM";
+        
+        // Draw confirm button
+        ili9341_draw_button(app_state.confirm_button.x, app_state.confirm_button.y,
+                           app_state.confirm_button.width, app_state.confirm_button.height,
+                           app_state.confirm_button.color, app_state.confirm_button.label);
+    }
+    
+    ESP_LOGI(TAG, "Display: Main screen drawn successfully");
 }
 
 /**
@@ -1205,12 +1377,64 @@ static void draw_config_screen(void)
     ESP_LOGI(TAG, "Display: Drawing config screen...");
     ESP_LOGI(TAG, "Display: Config layout - 4 editable macro buttons + back button");
     
-    // TODO: Clear screen
-    // TODO: Draw title
-    // TODO: Draw 4 macro buttons with edit labels
-    // TODO: Draw Back button
+    // Clear screen to black
+    ili9341_fill_screen(COLOR_BLACK);
     
-    ESP_LOGI(TAG, "Display: Config screen drawn (stub - full implementation pending)");
+    // Draw title area at top (optional, can add text rendering later)
+    ili9341_fill_rect(0, 0, SCREEN_WIDTH, 30, COLOR_DARKBLUE);
+    
+    // Define button layout - same as main screen but with different behavior
+    const uint16_t margin = BUTTON_MARGIN;
+    const uint16_t top_margin = 35; // Leave space for title
+    const uint16_t button_width = (SCREEN_WIDTH - 3 * margin) / 2;
+    const uint16_t button_height = ((SCREEN_HEIGHT - top_margin - 3 * margin) / 2) - 10;
+    
+    // Store button positions
+    // Top-left: Red (M1) - macro 0
+    app_state.macro_buttons[0].x = margin;
+    app_state.macro_buttons[0].y = top_margin;
+    app_state.macro_buttons[0].width = button_width;
+    app_state.macro_buttons[0].height = button_height;
+    app_state.macro_buttons[0].color = COLOR_RED;
+    
+    // Top-right: Green (M2) - macro 1
+    app_state.macro_buttons[1].x = SCREEN_WIDTH / 2 + margin / 2;
+    app_state.macro_buttons[1].y = top_margin;
+    app_state.macro_buttons[1].width = button_width;
+    app_state.macro_buttons[1].height = button_height;
+    app_state.macro_buttons[1].color = COLOR_GREEN;
+    
+    // Bottom-left: Blue (M3) - macro 2
+    app_state.macro_buttons[2].x = margin;
+    app_state.macro_buttons[2].y = top_margin + button_height + margin;
+    app_state.macro_buttons[2].width = button_width;
+    app_state.macro_buttons[2].height = button_height;
+    app_state.macro_buttons[2].color = COLOR_BLUE;
+    
+    // Bottom-right: Yellow (M4) - macro 3
+    app_state.macro_buttons[3].x = SCREEN_WIDTH / 2 + margin / 2;
+    app_state.macro_buttons[3].y = top_margin + button_height + margin;
+    app_state.macro_buttons[3].width = button_width;
+    app_state.macro_buttons[3].height = button_height;
+    app_state.macro_buttons[3].color = COLOR_YELLOW;
+    
+    // Draw the 4 macro buttons
+    for (int i = 0; i < NUM_MACROS; i++) {
+        ESP_LOGI(TAG, "Drawing config button %d at (%d, %d)", i, 
+                app_state.macro_buttons[i].x, app_state.macro_buttons[i].y);
+        ili9341_draw_button(app_state.macro_buttons[i].x, app_state.macro_buttons[i].y,
+                           app_state.macro_buttons[i].width, app_state.macro_buttons[i].height,
+                           app_state.macro_buttons[i].color, app_state.macros[i]);
+    }
+    
+    // Draw back button at bottom
+    uint16_t back_btn_width = 100;
+    uint16_t back_btn_height = 30;
+    uint16_t back_btn_x = (SCREEN_WIDTH - back_btn_width) / 2;
+    uint16_t back_btn_y = SCREEN_HEIGHT - back_btn_height - 5;
+    ili9341_draw_button(back_btn_x, back_btn_y, back_btn_width, back_btn_height, COLOR_GRAY, "BACK");
+    
+    ESP_LOGI(TAG, "Display: Config screen drawn successfully");
 }
 
 /**
@@ -1221,14 +1445,146 @@ static void draw_keyboard(void)
     ESP_LOGI(TAG, "Display: Drawing keyboard...");
     ESP_LOGI(TAG, "Display: Keyboard layout - QWERTY + special chars + controls");
     
-    // TODO: Clear screen
-    // TODO: Draw title
-    // TODO: Draw text input area
-    // TODO: Draw QWERTY keyboard rows
-    // TODO: Draw special character row
-    // TODO: Draw control keys (Shift, Space, Backspace, Save)
+    // Clear screen to black
+    ili9341_fill_screen(COLOR_BLACK);
     
-    ESP_LOGI(TAG, "Display: Keyboard drawn (stub - full implementation pending)");
+    // Draw title/text input area at top (showing what's been typed)
+    ili9341_fill_rect(0, 0, SCREEN_WIDTH, 50, COLOR_DARKBLUE);
+    // TODO: Add text rendering to show edit_buffer content
+    
+    // Draw preview of current text (just a placeholder for now)
+    // Text rendering will be added later
+    ESP_LOGI(TAG, "Current text: %.40s%s", app_state.edit_buffer, 
+             strlen(app_state.edit_buffer) > 40 ? "..." : "");
+    
+    // Define keyboard layouts for different pages
+    const char* kb_alpha_lower[3][10] = {
+        {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
+        {"a", "s", "d", "f", "g", "h", "j", "k", "l", ""},
+        {"z", "x", "c", "v", "b", "n", "m", "", "", ""}
+    };
+    
+    const char* kb_alpha_upper[3][10] = {
+        {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
+        {"A", "S", "D", "F", "G", "H", "J", "K", "L", ""},
+        {"Z", "X", "C", "V", "B", "N", "M", "", "", ""}
+    };
+    
+    const char* kb_numbers[3][10] = {
+        {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
+        {"-", "=", "[", "]", "\\", ";", "'", ",", ".", "/"},
+        {"", "", "", "", "", "", "", "", "", ""}
+    };
+    
+    const char* kb_symbols[3][10] = {
+        {"!", "@", "#", "$", "%", "^", "&", "*", "(", ")"},
+        {"_", "+", "{", "}", "|", ":", "\"", "<", ">", "?"},
+        {"", "", "", "", "", "", "", "", "", ""}
+    };
+    
+    // Select current keyboard layout
+    const char* (*current_layout)[10] = NULL;
+    switch (app_state.keyboard_page) {
+        case KB_PAGE_ALPHA_LOWER:
+            current_layout = kb_alpha_lower;
+            break;
+        case KB_PAGE_ALPHA_UPPER:
+            current_layout = kb_alpha_upper;
+            break;
+        case KB_PAGE_NUMBERS:
+            current_layout = kb_numbers;
+            break;
+        case KB_PAGE_SYMBOLS:
+            current_layout = kb_symbols;
+            break;
+    }
+    
+    // Draw keyboard keys
+    uint16_t y_pos = KEYBOARD_START_Y;
+    for (int row = 0; row < KEYBOARD_ROWS; row++) {
+        uint16_t x_pos = 10;
+        
+        for (int col = 0; col < KEYBOARD_MAX_COLS; col++) {
+            if (strlen(current_layout[row][col]) > 0) {
+                // Draw key
+                ili9341_draw_button(x_pos, y_pos, KEY_WIDTH, KEY_HEIGHT, 
+                                   COLOR_GRAY, current_layout[row][col]);
+            }
+            x_pos += KEY_WIDTH + KEY_MARGIN;
+        }
+        y_pos += KEY_HEIGHT + KEY_MARGIN;
+    }
+    
+    // Draw control buttons at bottom
+    uint16_t ctrl_y = KEYBOARD_START_Y + (KEY_HEIGHT + KEY_MARGIN) * KEYBOARD_ROWS + 5;
+    
+    // Page switch button (ABC/123/SYM)
+    const char* page_label = "123";
+    if (app_state.keyboard_page == KB_PAGE_NUMBERS) {
+        page_label = "SYM";
+    } else if (app_state.keyboard_page == KB_PAGE_SYMBOLS) {
+        page_label = "ABC";
+    }
+    ili9341_draw_button(10, ctrl_y, 50, KEY_HEIGHT, COLOR_DARKBLUE, page_label);
+    
+    // Shift button (for uppercase/lowercase)
+    if (app_state.keyboard_page == KB_PAGE_ALPHA_LOWER || 
+        app_state.keyboard_page == KB_PAGE_ALPHA_UPPER) {
+        const char* shift_label = app_state.keyboard_page == KB_PAGE_ALPHA_UPPER ? "abc" : "ABC";
+        ili9341_draw_button(65, ctrl_y, 50, KEY_HEIGHT, COLOR_DARKBLUE, shift_label);
+    }
+    
+    // Space bar
+    ili9341_draw_button(120, ctrl_y, 80, KEY_HEIGHT, COLOR_DARKBLUE, "SPACE");
+    
+    // Backspace
+    ili9341_draw_button(205, ctrl_y, 50, KEY_HEIGHT, COLOR_RED, "BKSP");
+    
+    // Save button
+    ili9341_draw_button(260, ctrl_y, 50, KEY_HEIGHT, COLOR_GREEN, "SAVE");
+    
+    ESP_LOGI(TAG, "Display: Keyboard drawn successfully (page: %d)", app_state.keyboard_page);
+}
+
+/**
+ * Draw the Bluetooth configuration screen
+ */
+static void draw_bt_config_screen(void)
+{
+    ESP_LOGI(TAG, "Display: Drawing Bluetooth config screen...");
+    
+    // Clear screen to black
+    ili9341_fill_screen(COLOR_BLACK);
+    
+    // Draw title area
+    ili9341_fill_rect(0, 0, SCREEN_WIDTH, 40, COLOR_DARKBLUE);
+    // TODO: Add text "Bluetooth Settings"
+    
+    // Draw device name area
+    ili9341_fill_rect(10, 50, SCREEN_WIDTH - 20, 40, COLOR_GRAY);
+    // TODO: Display "Device: keybot"
+    
+    // Draw connection status area
+    ili9341_fill_rect(10, 100, SCREEN_WIDTH - 20, 40, COLOR_GRAY);
+    // TODO: Display connection status
+    
+    // Draw clear flash button (red, prominent)
+    uint16_t clear_btn_width = 150;
+    uint16_t clear_btn_height = 40;
+    uint16_t clear_btn_x = (SCREEN_WIDTH - clear_btn_width) / 2;
+    uint16_t clear_btn_y = 160;
+    ili9341_draw_button(clear_btn_x, clear_btn_y, clear_btn_width, clear_btn_height, 
+                       COLOR_RED, "CLEAR FLASH");
+    
+    // Draw back button
+    uint16_t back_btn_width = 100;
+    uint16_t back_btn_height = 30;
+    uint16_t back_btn_x = (SCREEN_WIDTH - back_btn_width) / 2;
+    uint16_t back_btn_y = SCREEN_HEIGHT - back_btn_height - 10;
+    ili9341_draw_button(back_btn_x, back_btn_y, back_btn_width, back_btn_height, 
+                       COLOR_GRAY, "BACK");
+    
+    ESP_LOGI(TAG, "Display: Bluetooth config screen drawn");
 }
 
 // =============================================================================
@@ -1251,10 +1607,11 @@ static void ble_init(void)
     
     // TODO: Initialize Bluedroid
     // TODO: Setup HID device profile
-    // TODO: Set device name "ESP32 MacroPad"
+    // TODO: Set device name "keybot" (as per requirements)
     // TODO: Start advertising
     
     ESP_LOGI(TAG, "Bluetooth HID initialized (stub)");
+    ESP_LOGI(TAG, "Device name will be: keybot");
 }
 
 /**
@@ -1280,6 +1637,332 @@ static void ble_send_text(const char *text)
 // =============================================================================
 
 /**
+ * Check if a point is within a button's bounds
+ */
+static bool is_point_in_button(uint16_t x, uint16_t y, const button_t *button)
+{
+    return (x >= button->x && x < (button->x + button->width) &&
+            y >= button->y && y < (button->y + button->height));
+}
+
+/**
+ * Get which macro button (0-3) is touched, or -1 if none
+ */
+static int get_touched_macro_button(uint16_t x, uint16_t y)
+{
+    for (int i = 0; i < NUM_MACROS; i++) {
+        if (is_point_in_button(x, y, &app_state.macro_buttons[i])) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/**
+ * Handle touch in playback mode
+ */
+static void handle_playback_touch(uint16_t x, uint16_t y, uint32_t press_duration)
+{
+    ESP_LOGI(TAG, "Playback touch at (%d, %d), duration: %lu ms", x, y, press_duration);
+    
+    // Check for long press (5 seconds for config, 10 seconds for BT config)
+    if (press_duration >= BT_CONFIG_PRESS_MS) {
+        ESP_LOGI(TAG, "Long press detected (>10s) - opening BT config");
+        app_state.mode = MODE_BT_CONFIG;
+        draw_bt_config_screen();
+        return;
+    } else if (press_duration >= CONFIG_PRESS_MS) {
+        ESP_LOGI(TAG, "Long press detected (>5s) - opening config mode");
+        app_state.mode = MODE_CONFIG;
+        draw_config_screen();
+        return;
+    }
+    
+    // Short press handling
+    if (press_duration < SHORT_PRESS_MS) {
+        return; // Too short, ignore
+    }
+    
+    // Check if confirm button was pressed
+    if (app_state.send_button_visible && is_point_in_button(x, y, &app_state.confirm_button)) {
+        ESP_LOGI(TAG, "Confirm button pressed - sending macro %d", app_state.selected_macro);
+        // TODO: Send the macro via Bluetooth
+        ble_send_text(app_state.macros[app_state.selected_macro]);
+        
+        // Reset selection
+        app_state.selected_macro = -1;
+        app_state.send_button_visible = false;
+        draw_main_screen();
+        return;
+    }
+    
+    // Check which macro button was pressed
+    int touched_button = get_touched_macro_button(x, y);
+    
+    if (touched_button >= 0) {
+        ESP_LOGI(TAG, "Macro button %d pressed", touched_button);
+        
+        if (app_state.selected_macro == touched_button) {
+            // Same button pressed again, cancel selection
+            ESP_LOGI(TAG, "Same button pressed, canceling selection");
+            app_state.selected_macro = -1;
+            app_state.send_button_visible = false;
+        } else {
+            // New button selected, show confirm button
+            ESP_LOGI(TAG, "New button selected: %d", touched_button);
+            app_state.selected_macro = touched_button;
+            app_state.send_button_visible = true;
+            app_state.selection_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        }
+        
+        draw_main_screen();
+    } else {
+        // Touch outside buttons, cancel selection
+        if (app_state.selected_macro >= 0) {
+            ESP_LOGI(TAG, "Touch outside buttons, canceling selection");
+            app_state.selected_macro = -1;
+            app_state.send_button_visible = false;
+            draw_main_screen();
+        }
+    }
+}
+
+/**
+ * Handle touch in config mode
+ */
+static void handle_config_touch(uint16_t x, uint16_t y)
+{
+    ESP_LOGI(TAG, "Config touch at (%d, %d)", x, y);
+    
+    // Check if back button was pressed (bottom center)
+    uint16_t back_btn_width = 100;
+    uint16_t back_btn_height = 30;
+    uint16_t back_btn_x = (SCREEN_WIDTH - back_btn_width) / 2;
+    uint16_t back_btn_y = SCREEN_HEIGHT - back_btn_height - 5;
+    
+    if (x >= back_btn_x && x < (back_btn_x + back_btn_width) &&
+        y >= back_btn_y && y < (back_btn_y + back_btn_height)) {
+        ESP_LOGI(TAG, "Back button pressed - returning to playback mode");
+        app_state.mode = MODE_PLAYBACK;
+        draw_main_screen();
+        return;
+    }
+    
+    // Check which macro button was pressed for editing
+    int touched_button = get_touched_macro_button(x, y);
+    
+    if (touched_button >= 0) {
+        ESP_LOGI(TAG, "Edit button %d pressed", touched_button);
+        app_state.editing_macro = touched_button;
+        app_state.mode = MODE_EDIT_KEYBOARD;
+        app_state.keyboard_page = KB_PAGE_ALPHA_LOWER;
+        
+        // Copy current macro to edit buffer
+        strncpy(app_state.edit_buffer, app_state.macros[touched_button], MAX_MACRO_LEN - 1);
+        app_state.edit_buffer[MAX_MACRO_LEN - 1] = '\0';
+        app_state.edit_buffer_len = strlen(app_state.edit_buffer);
+        
+        draw_keyboard();
+    }
+}
+
+/**
+ * Handle touch in keyboard mode
+ */
+static void handle_keyboard_touch(uint16_t x, uint16_t y)
+{
+    ESP_LOGI(TAG, "Keyboard touch at (%d, %d)", x, y);
+    
+    // Control buttons Y position
+    uint16_t ctrl_y = KEYBOARD_START_Y + (KEY_HEIGHT + KEY_MARGIN) * KEYBOARD_ROWS + 5;
+    
+    // Check control buttons first
+    // Page switch button (ABC/123/SYM)
+    if (x >= 10 && x < 60 && y >= ctrl_y && y < (ctrl_y + KEY_HEIGHT)) {
+        ESP_LOGI(TAG, "Page switch button pressed");
+        // Cycle through pages
+        switch (app_state.keyboard_page) {
+            case KB_PAGE_ALPHA_LOWER:
+            case KB_PAGE_ALPHA_UPPER:
+                app_state.keyboard_page = KB_PAGE_NUMBERS;
+                break;
+            case KB_PAGE_NUMBERS:
+                app_state.keyboard_page = KB_PAGE_SYMBOLS;
+                break;
+            case KB_PAGE_SYMBOLS:
+                app_state.keyboard_page = KB_PAGE_ALPHA_LOWER;
+                break;
+        }
+        draw_keyboard();
+        return;
+    }
+    
+    // Shift button (for uppercase/lowercase)
+    if (x >= 65 && x < 115 && y >= ctrl_y && y < (ctrl_y + KEY_HEIGHT)) {
+        ESP_LOGI(TAG, "Shift button pressed");
+        if (app_state.keyboard_page == KB_PAGE_ALPHA_LOWER) {
+            app_state.keyboard_page = KB_PAGE_ALPHA_UPPER;
+        } else if (app_state.keyboard_page == KB_PAGE_ALPHA_UPPER) {
+            app_state.keyboard_page = KB_PAGE_ALPHA_LOWER;
+        }
+        draw_keyboard();
+        return;
+    }
+    
+    // Space bar
+    if (x >= 120 && x < 200 && y >= ctrl_y && y < (ctrl_y + KEY_HEIGHT)) {
+        ESP_LOGI(TAG, "Space button pressed");
+        if (app_state.edit_buffer_len < MAX_MACRO_LEN - 1) {
+            app_state.edit_buffer[app_state.edit_buffer_len++] = ' ';
+            app_state.edit_buffer[app_state.edit_buffer_len] = '\0';
+            draw_keyboard();
+        }
+        return;
+    }
+    
+    // Backspace
+    if (x >= 205 && x < 255 && y >= ctrl_y && y < (ctrl_y + KEY_HEIGHT)) {
+        ESP_LOGI(TAG, "Backspace button pressed");
+        if (app_state.edit_buffer_len > 0) {
+            app_state.edit_buffer[--app_state.edit_buffer_len] = '\0';
+            draw_keyboard();
+        }
+        return;
+    }
+    
+    // Save button
+    if (x >= 260 && x < 310 && y >= ctrl_y && y < (ctrl_y + KEY_HEIGHT)) {
+        ESP_LOGI(TAG, "Save button pressed");
+        // Save the macro
+        save_macro(app_state.editing_macro, app_state.edit_buffer);
+        
+        // Return to config screen
+        app_state.mode = MODE_CONFIG;
+        app_state.editing_macro = -1;
+        memset(app_state.edit_buffer, 0, sizeof(app_state.edit_buffer));
+        app_state.edit_buffer_len = 0;
+        draw_config_screen();
+        return;
+    }
+    
+    // Check keyboard keys
+    if (y >= KEYBOARD_START_Y && y < (KEYBOARD_START_Y + (KEY_HEIGHT + KEY_MARGIN) * KEYBOARD_ROWS)) {
+        // Calculate which key was pressed
+        int row = (y - KEYBOARD_START_Y) / (KEY_HEIGHT + KEY_MARGIN);
+        int col = (x - 10) / (KEY_WIDTH + KEY_MARGIN);
+        
+        if (row >= 0 && row < KEYBOARD_ROWS && col >= 0 && col < KEYBOARD_MAX_COLS) {
+            // Get the character for this key
+            const char* ch = NULL;
+            
+            // Define keyboard layouts (same as in draw_keyboard)
+            const char* kb_alpha_lower[3][10] = {
+                {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
+                {"a", "s", "d", "f", "g", "h", "j", "k", "l", ""},
+                {"z", "x", "c", "v", "b", "n", "m", "", "", ""}
+            };
+            
+            const char* kb_alpha_upper[3][10] = {
+                {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"},
+                {"A", "S", "D", "F", "G", "H", "J", "K", "L", ""},
+                {"Z", "X", "C", "V", "B", "N", "M", "", "", ""}
+            };
+            
+            const char* kb_numbers[3][10] = {
+                {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
+                {"-", "=", "[", "]", "\\", ";", "'", ",", ".", "/"},
+                {"", "", "", "", "", "", "", "", "", ""}
+            };
+            
+            const char* kb_symbols[3][10] = {
+                {"!", "@", "#", "$", "%", "^", "&", "*", "(", ")"},
+                {"_", "+", "{", "}", "|", ":", "\"", "<", ">", "?"},
+                {"", "", "", "", "", "", "", "", "", ""}
+            };
+            
+            // Select current keyboard layout
+            switch (app_state.keyboard_page) {
+                case KB_PAGE_ALPHA_LOWER:
+                    ch = kb_alpha_lower[row][col];
+                    break;
+                case KB_PAGE_ALPHA_UPPER:
+                    ch = kb_alpha_upper[row][col];
+                    break;
+                case KB_PAGE_NUMBERS:
+                    ch = kb_numbers[row][col];
+                    break;
+                case KB_PAGE_SYMBOLS:
+                    ch = kb_symbols[row][col];
+                    break;
+            }
+            
+            if (ch && strlen(ch) > 0 && app_state.edit_buffer_len < MAX_MACRO_LEN - 1) {
+                ESP_LOGI(TAG, "Key pressed: '%s'", ch);
+                app_state.edit_buffer[app_state.edit_buffer_len++] = ch[0];
+                app_state.edit_buffer[app_state.edit_buffer_len] = '\0';
+                draw_keyboard();
+            }
+        }
+    }
+}
+
+/**
+ * Handle touch in Bluetooth config mode
+ */
+static void handle_bt_config_touch(uint16_t x, uint16_t y)
+{
+    ESP_LOGI(TAG, "BT config touch at (%d, %d)", x, y);
+    
+    // Check if back button was pressed
+    uint16_t back_btn_width = 100;
+    uint16_t back_btn_height = 30;
+    uint16_t back_btn_x = (SCREEN_WIDTH - back_btn_width) / 2;
+    uint16_t back_btn_y = SCREEN_HEIGHT - back_btn_height - 10;
+    
+    if (x >= back_btn_x && x < (back_btn_x + back_btn_width) &&
+        y >= back_btn_y && y < (back_btn_y + back_btn_height)) {
+        ESP_LOGI(TAG, "Back button pressed - returning to playback mode");
+        app_state.mode = MODE_PLAYBACK;
+        draw_main_screen();
+        return;
+    }
+    
+    // Check if clear flash button was pressed
+    uint16_t clear_btn_width = 150;
+    uint16_t clear_btn_height = 40;
+    uint16_t clear_btn_x = (SCREEN_WIDTH - clear_btn_width) / 2;
+    uint16_t clear_btn_y = 160;
+    
+    if (x >= clear_btn_x && x < (clear_btn_x + clear_btn_width) &&
+        y >= clear_btn_y && y < (clear_btn_y + clear_btn_height)) {
+        ESP_LOGI(TAG, "Clear flash button pressed - erasing NVS");
+        
+        // Erase NVS namespace
+        nvs_handle_t nvs_handle;
+        esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+        if (err == ESP_OK) {
+            nvs_erase_all(nvs_handle);
+            nvs_commit(nvs_handle);
+            nvs_close(nvs_handle);
+            ESP_LOGI(TAG, "NVS erased successfully");
+        } else {
+            ESP_LOGE(TAG, "Failed to open NVS for erasing: %s", esp_err_to_name(err));
+        }
+        
+        // Reload macros (will get defaults)
+        load_macros();
+        
+        // Visual feedback - flash screen or show message
+        ili9341_fill_screen(COLOR_RED);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        
+        // Return to main screen
+        app_state.mode = MODE_PLAYBACK;
+        draw_main_screen();
+    }
+}
+
+/**
  * Touch handling task
  * 
  * Reads touch coordinates from XPT2046 and logs them for debugging.
@@ -1291,33 +1974,83 @@ static void handle_touch_task(void *pvParameters)
     
     uint16_t last_x = 0, last_y = 0;
     bool was_touched = false;
+    uint32_t touch_start_time = 0;
     
     while (1) {
-        uint16_t x, y;
+        uint16_t raw_x, raw_y;
         
-        // Read touch coordinates
-        if (read_touch_coordinates(&x, &y)) {
+        // Read raw touch coordinates from XPT2046
+        if (read_touch_coordinates(&raw_x, &raw_y)) {
             // Touch detected
-            // Only log if coordinates changed significantly or this is a new touch
-            if (!was_touched || abs((int)x - (int)last_x) > 10 || abs((int)y - (int)last_y) > 10) {
-                ESP_LOGI(TAG, "Touch detected - Raw coordinates: X=%d, Y=%d", x, y);
-                last_x = x;
-                last_y = y;
+            if (!was_touched) {
+                // New touch started
+                touch_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+                ESP_LOGI(TAG, "Touch started - Raw coordinates: X=%d, Y=%d", raw_x, raw_y);
+                was_touched = true;
+                last_x = raw_x;
+                last_y = raw_y;
+            } else {
+                // Touch continuing
+                // Only log if coordinates changed significantly
+                if (abs((int)raw_x - (int)last_x) > 50 || abs((int)raw_y - (int)last_y) > 50) {
+                    uint32_t duration = (xTaskGetTickCount() * portTICK_PERIOD_MS) - touch_start_time;
+                    ESP_LOGI(TAG, "Touch moved - Raw: X=%d, Y=%d, Duration: %lu ms", raw_x, raw_y, duration);
+                    last_x = raw_x;
+                    last_y = raw_y;
+                }
             }
-            was_touched = true;
-            
-            // TODO: Map raw coordinates to screen coordinates (with calibration)
-            // TODO: Handle touch based on current mode
-            // TODO: Implement button detection and interaction
         } else {
             // No touch detected
             if (was_touched) {
-                ESP_LOGI(TAG, "Touch released");
+                // Touch just released
+                uint32_t press_duration = (xTaskGetTickCount() * portTICK_PERIOD_MS) - touch_start_time;
+                ESP_LOGI(TAG, "Touch released - Duration: %lu ms", press_duration);
+                
+                // Map raw coordinates to screen coordinates
+                // XPT2046 typical range: 0-4095 for 12-bit ADC
+                // Screen: 320x240 in landscape mode
+                // Note: Calibration may be needed for specific hardware
+                // For now, using a simple linear mapping
+                // These values may need adjustment based on your specific display
+                
+                // Swap and invert coordinates for landscape mode
+                // This assumes the touch controller's orientation relative to display
+                uint16_t screen_x = (raw_y * SCREEN_WIDTH) / 4095;
+                uint16_t screen_y = SCREEN_HEIGHT - ((raw_x * SCREEN_HEIGHT) / 4095);
+                
+                // Clamp to screen bounds
+                if (screen_x >= SCREEN_WIDTH) screen_x = SCREEN_WIDTH - 1;
+                if (screen_y >= SCREEN_HEIGHT) screen_y = SCREEN_HEIGHT - 1;
+                
+                ESP_LOGI(TAG, "Mapped touch to screen coordinates: X=%d, Y=%d", screen_x, screen_y);
+                
+                // Handle touch based on current mode
+                switch (app_state.mode) {
+                    case MODE_PLAYBACK:
+                        handle_playback_touch(screen_x, screen_y, press_duration);
+                        break;
+                    
+                    case MODE_CONFIG:
+                        handle_config_touch(screen_x, screen_y);
+                        break;
+                    
+                    case MODE_EDIT_KEYBOARD:
+                        handle_keyboard_touch(screen_x, screen_y);
+                        break;
+                    
+                    case MODE_BT_CONFIG:
+                        handle_bt_config_touch(screen_x, screen_y);
+                        break;
+                    
+                    default:
+                        break;
+                }
+                
                 was_touched = false;
             }
         }
         
-        vTaskDelay(pdMS_TO_TICKS(50)); // 20Hz polling (reduced from 100Hz to avoid log spam)
+        vTaskDelay(pdMS_TO_TICKS(50)); // 20Hz polling
     }
 }
 
@@ -1352,7 +2085,7 @@ static void ui_task(void *pvParameters)
         
         // Check for selection timeout (5 seconds)
         if (app_state.selected_macro >= 0 && app_state.send_button_visible) {
-            if (now - app_state.selection_time > 5000) {
+            if (now - app_state.selection_time > SELECTION_TIMEOUT_MS) {
                 ESP_LOGI(TAG, "Selection timeout, clearing");
                 app_state.selected_macro = -1;
                 app_state.send_button_visible = false;
@@ -1360,9 +2093,10 @@ static void ui_task(void *pvParameters)
             }
         }
         
-        // Redraw screen periodically
+        // Redraw screen periodically if needed
         if (now - last_update > 1000) {
-            // Update BLE status or other dynamic elements
+            // Update BLE status or other dynamic elements if needed
+            // For now, just update timestamp
             last_update = now;
         }
         
