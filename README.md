@@ -327,7 +327,7 @@ After exiting the display test on **first boot**, the device will automatically 
 
 ### Normal Operation - Playback Mode
 
-After the display test completes (and calibration if needed), the device operates in Playback Mode:
+After the display test completes (and automatic calibration on first boot if no calibration data exists), the device operates in Playback Mode:
 
 1. The device will start in **Playback Mode**
 2. Display shows 4 macro buttons labeled "M1", "M2", "M3", "M4"
