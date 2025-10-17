@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed display rotation - display now rotates 90 degrees clockwise to correct orientation
+  - Changed ILI9341 MADCTL register from 0x48 to 0x28
+  - Updated display initialization logs to reflect new orientation
+- Implemented touch screen coordinate reading from XPT2046 controller
+  - Added xpt2046_read() function for raw SPI communication with touch controller
+  - Added read_touch_coordinates() function to read X/Y positions with averaging
+  - Updated touch handling task to actively read and log coordinates
+  - Added touch press/release detection
+  - Reduced touch polling to 20Hz to avoid log spam
+
 ### Added
 - Version information system that displays firmware version in logs and on display
   - Shows git tag version when built from a tagged release (e.g., v0.1.2)
@@ -14,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Auto-generated at build time from git repository information
   - Logged at firmware startup for debugging and support
   - Displayed on main screen (when UI is fully implemented)
+- Touch coordinate reading functionality
+  - Reads 12-bit raw values from XPT2046 (0-4095)
+  - Averages two readings to reduce noise
+  - Logs touch events with coordinates for debugging
+  - Pressure threshold detection (Z1 > 100)
+- Comprehensive documentation for display rotation and touch fixes (DISPLAY_ROTATION_FIX.md)
+  - Technical details about MADCTL register and XPT2046 commands
+  - Testing and troubleshooting guides
+  - Future calibration implementation notes
 
 ## [1.0.0] - 2025-10-15
 
