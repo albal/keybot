@@ -158,18 +158,22 @@ ESP32 GND     -->    Display GND
 
 #### SPI Display Connections
 ```
-ESP32 GPIO 23 -->    Display SDI (MOSI)
-ESP32 GPIO 19 -->    Display SDO (MISO)
-ESP32 GPIO 18 -->    Display SCK (Clock)
+ESP32 GPIO 13 -->    Display SDI (MOSI)
+ESP32 GPIO 12 -->    Display SDO (MISO)
+ESP32 GPIO 14 -->    Display SCK (Clock)
 ESP32 GPIO 15 -->    Display CS (Chip Select)
 ESP32 GPIO 2  -->    Display DC (Data/Command)
-ESP32 GPIO 4  -->    Display RST (Reset)
+ESP32 EN      -->    Display RST (Reset) - shared with ESP32
 ```
 
 #### Touch Controller Connections
 ```
-ESP32 GPIO 5  -->    Display T_CS (Touch CS)
-(Touch shares MOSI, MISO, SCK with display)
+ESP32 GPIO 32 -->    Touch T_DIN (MOSI)
+ESP32 GPIO 39 -->    Touch T_DO (MISO)
+ESP32 GPIO 25 -->    Touch T_CLK (Clock)
+ESP32 GPIO 33 -->    Touch T_CS (Chip Select)
+ESP32 GPIO 36 -->    Touch T_IRQ (Interrupt)
+(Note: Touch uses separate SPI bus from display)
 ```
 
 #### Optional Backlight
@@ -208,28 +212,73 @@ Watch for:
 
 ### Pin Mapping Table
 
+**For 2.8inch ESP32-32E Display (QD-TFT2803):**
+
 | Function | ESP32 GPIO | Display Pin | Touch Pin | Notes |
 |----------|------------|-------------|-----------|-------|
 | Power (3.3V) | 3.3V | VCC | - | Check voltage! |
 | Ground | GND | GND | - | Common ground |
-| SPI MOSI | GPIO 23 | SDI/MOSI | T_DIN | Shared |
-| SPI MISO | GPIO 19 | SDO/MISO | T_DO | Shared |
-| SPI Clock | GPIO 18 | SCK | T_CLK | Shared |
-| Display CS | GPIO 15 | CS | - | Display select |
-| Data/Command | GPIO 2 | DC | - | Display mode |
-| Reset | GPIO 4 | RST | - | Can use -1 |
-| Touch CS | GPIO 5 | - | T_CS | Touch select |
-| Backlight | GPIO 21 | LED | - | Optional PWM |
+| **Display SPI (VSPI)** |  |  |  |  |
+| SPI MOSI | GPIO 13 | SDI/MOSI | - | Display data out |
+| SPI MISO | GPIO 12 | SDO/MISO | - | Display data in |
+| SPI Clock | GPIO 14 | SCK | - | Display clock |
+| Display CS | GPIO 15 | CS | - | Display select (active low) |
+| Data/Command | GPIO 2 | DC | - | High: data, Low: command |
+| Reset | EN | RST | - | Shared with ESP32 reset |
+| Backlight | GPIO 21 | LED | - | High: on, Low: off |
+| **Touch SPI (HSPI)** |  |  |  | **Separate bus!** |
+| SPI MOSI | GPIO 32 | - | T_DIN | Touch data out |
+| SPI MISO | GPIO 39 | - | T_DO | Touch data in (input only) |
+| SPI Clock | GPIO 25 | - | T_CLK | Touch clock |
+| Touch CS | GPIO 33 | - | T_CS | Touch select (active low) |
+| Touch IRQ | GPIO 36 | - | T_IRQ | Touch interrupt (input only) |
 
-### SPI Bus Sharing
+**Important Notes:**
+- Display and touch use **separate SPI buses** on this hardware
+- Display uses VSPI pins (GPIO 12, 13, 14)
+- Touch uses HSPI pins (GPIO 25, 32, 39)
+- GPIO 36 and 39 are input-only pins on ESP32
+- Reset pin is shared with ESP32 EN pin (hardware design)
 
-The display and touch controller share the same SPI bus (MOSI, MISO, CLK). This is normal and efficient. They are differentiated by their Chip Select (CS) pins:
-- Display CS = GPIO 15
-- Touch CS = GPIO 5
+### SPI Bus Configuration
+
+**IMPORTANT:** The 2.8inch ESP32-32E Display uses **two separate SPI buses**:
+
+1. **VSPI for Display (ILI9341)**:
+   - MOSI: GPIO 13
+   - MISO: GPIO 12
+   - SCLK: GPIO 14
+   - CS: GPIO 15
+
+2. **HSPI for Touch (XPT2046)**:
+   - MOSI: GPIO 32
+   - MISO: GPIO 39 (input only)
+   - SCLK: GPIO 25
+   - CS: GPIO 33
+
+This is different from most other ILI9341 displays that share a single SPI bus. The hardware manufacturer designed it this way for the 2.8inch ESP32-32E board.
 
 ### Alternative Pin Configurations
 
-You can change pins, but keep these considerations:
+**WARNING:** For the 2.8inch ESP32-32E Display, pin configurations are **FIXED** by the hardware design. The display PCB has hardwired connections to specific ESP32 pins. You **cannot** change these pins without hardware modifications.
+
+**Fixed Display Pins (VSPI)**:
+- MOSI: GPIO 13 (hardwired)
+- MISO: GPIO 12 (hardwired)
+- SCLK: GPIO 14 (hardwired)
+- CS: GPIO 15 (hardwired)
+- DC: GPIO 2 (hardwired)
+- RST: EN pin (hardwired, shared with ESP32 reset)
+- LED: GPIO 21 (hardwired)
+
+**Fixed Touch Pins (HSPI)**:
+- MOSI: GPIO 32 (hardwired)
+- MISO: GPIO 39 (hardwired, input only)
+- SCLK: GPIO 25 (hardwired)
+- CS: GPIO 33 (hardwired)
+- IRQ: GPIO 36 (hardwired, input only)
+
+**For other display modules**, you may be able to configure different pins, but keep these considerations:
 
 **Hardware SPI Pins** (fastest, recommended):
 - MOSI: GPIO 23
