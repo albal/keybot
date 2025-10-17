@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Touchscreen calibration feature** for accurate touch input
+  - Two-point calibration system (top-left and bottom-right corners)
+  - Calibration data stored in NVS flash for persistence
+  - Automatic calibration prompt on first boot (after display test)
+  - Manual calibration mode accessible via 10-second press (new)
+  - Calibration applies axis swapping for landscape mode orientation
+  - Visual crosshair targets and progress indicators during calibration
+  - Success confirmation message after calibration completion
+
+### Changed
+- **Updated touch press duration thresholds** for better usability
+  - 5 seconds: Enter configuration mode (unchanged)
+  - **10 seconds: Enter calibration mode** (NEW - was not available)
+  - **20 seconds: Enter Bluetooth config mode** (changed from 10 seconds)
+- Touch coordinate mapping now uses calibration data when available
+  - Falls back to default mapping if no calibration data exists
+  - Properly handles axis swapping (raw_y → screen_x, raw_x → screen_y)
+- Clear flash operation in BT config now also resets calibration data
+
 ### Fixed
 - Fixed display rotation - display now rotates 90 degrees clockwise to correct orientation
   - Changed ILI9341 MADCTL register from 0x48 to 0x28
@@ -17,8 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Updated touch handling task to actively read and log coordinates
   - Added touch press/release detection
   - Reduced touch polling to 20Hz to avoid log spam
-
-### Added
 - Version information system that displays firmware version in logs and on display
   - Shows git tag version when built from a tagged release (e.g., v0.1.2)
   - Shows short commit SHA when no tag is available (e.g., abc1234)

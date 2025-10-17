@@ -13,8 +13,9 @@ This project implements a custom Bluetooth HID macro keyboard using an ESP32-WRO
 - **4 Configurable Macro Buttons**: Each button can store a custom text string
 - **Bluetooth HID Support**: Connects as a standard Bluetooth keyboard
 - **Touchscreen Interface**: Intuitive touch-based UI with on-screen keyboard
+- **Touchscreen Calibration**: Two-point calibration system for accurate touch input
 - **Two-Step Safeguard**: Prevents accidental macro execution
-- **Persistent Storage**: Macros saved to ESP32 NVS (survives power cycles)
+- **Persistent Storage**: Macros and calibration data saved to ESP32 NVS (survives power cycles)
 - **Configuration Mode**: Easy-to-use on-screen QWERTY keyboard for editing macros
 - **Real-time Bluetooth Status**: Visual indicator shows connection status
 - **Native ESP-IDF**: Uses Espressif's native framework for better performance
@@ -307,11 +308,26 @@ When you first power on the device or reset it, it will automatically run a **Di
 
 For more details about the display test, see [DISPLAY_TEST.md](DISPLAY_TEST.md).
 
-### Normal Operation - Playback Mode
+### Touchscreen Calibration (First Boot Only)
+
+After exiting the display test on **first boot**, the device will automatically enter **Calibration Mode** if no calibration data exists:
+
+1. **Calibration Screen**: Shows "Touch Calibration" at the top with a crosshair target
+2. **Point 1**: Touch the crosshair in the top-left corner and hold briefly
+3. **Point 2**: Touch the crosshair in the bottom-right corner and hold briefly
+4. **Success**: Screen turns green showing "Calibration Complete!"
+5. **Auto-Save**: Calibration data is automatically saved to flash memory
+
+**Note**: Calibration only appears on first boot. After calibration is saved, the device will skip directly to Playback Mode.
+
+**Manual Recalibration**: If you need to recalibrate:
+- From Playback Mode, **press and hold anywhere on screen for 10 seconds**
+- The calibration screen will appear
+- Follow the same two-point calibration process
 
 ### Normal Operation - Playback Mode
 
-After the display test completes (or on subsequent boots after you've exited the test), the device operates in Playback Mode:
+After the display test completes (and automatic calibration on first boot if no calibration data exists), the device operates in Playback Mode:
 
 1. The device will start in **Playback Mode**
 2. Display shows 4 macro buttons labeled "M1", "M2", "M3", "M4"
@@ -339,17 +355,18 @@ After the display test completes (or on subsequent boots after you've exited the
 
 ### Configuring Macros
 
-1. Touch the "SET" button in bottom-right corner
-2. You'll enter **Configuration Mode**
-3. Touch any of the 4 macro buttons to edit
-4. An on-screen keyboard appears
-5. Type your desired macro text:
+To enter **Configuration Mode**, **press and hold anywhere on the screen for 5 seconds**:
+
+1. You'll enter **Configuration Mode** with all 4 macro buttons visible
+2. Touch any of the 4 macro buttons to edit
+3. An on-screen keyboard appears
+4. Type your desired macro text:
    - Use alphanumeric keys
    - Press "SHIFT" for uppercase/symbols
    - Press "SPACE" for space
    - Press "BKSP" to delete
-6. Press "SAVE" when finished
-7. Touch "BACK" to return to playback mode
+5. Press "SAVE" when finished
+6. Touch "BACK" to return to playback mode
 
 ### On-Screen Keyboard Features
 
@@ -359,6 +376,16 @@ After the display test completes (or on subsequent boots after you've exited the
 - **Backspace**: Delete last character
 - **Save button**: Save macro and return to config screen
 - **Text preview**: See your text as you type
+
+### Long-Press Actions
+
+Different hold durations provide access to different modes from **Playback Mode**:
+
+- **5 seconds**: Enter **Configuration Mode** to edit macros
+- **10 seconds**: Enter **Calibration Mode** to recalibrate touchscreen
+- **20 seconds**: Enter **Bluetooth Configuration Mode** to manage Bluetooth settings
+
+**Tip**: Hold your finger on the screen and watch the logs (if monitoring serial) to see when each mode activates.
 
 ## Features & Functionality
 

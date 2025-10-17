@@ -252,10 +252,11 @@ static const char *TAG = "MACROPAD";
 #define BUTTON_MARGIN   10
 
 // Touch press duration thresholds (in milliseconds)
-#define SHORT_PRESS_MS      100     // Minimum for valid press
-#define CONFIG_PRESS_MS     5000    // 5 seconds for config mode
-#define BT_CONFIG_PRESS_MS  10000   // 10 seconds for BT config
-#define SELECTION_TIMEOUT_MS 5000   // 5 seconds timeout for macro selection
+#define SHORT_PRESS_MS          100     // Minimum for valid press
+#define CONFIG_PRESS_MS         5000    // 5 seconds for config mode
+#define CALIBRATION_PRESS_MS    10000   // 10 seconds for calibration mode
+#define BT_CONFIG_PRESS_MS      20000   // 20 seconds for BT config (changed from 10s)
+#define SELECTION_TIMEOUT_MS    5000    // 5 seconds timeout for macro selection
 
 // Keyboard configuration
 #define KEYBOARD_ROWS 3
@@ -271,6 +272,7 @@ static const char *TAG = "MACROPAD";
 
 typedef enum {
     MODE_DISPLAY_TEST,  // Display test mode on startup
+    MODE_CALIBRATION,   // Touchscreen calibration mode
     MODE_PLAYBACK,      // Main screen - playback mode
     MODE_CONFIG,        // Configuration mode - select macro to edit
     MODE_EDIT_KEYBOARD, // Editing mode - on-screen keyboard active
@@ -294,6 +296,18 @@ typedef struct {
     uint16_t color;
     const char* label;
 } button_t;
+
+// =============================================================================
+// CALIBRATION DATA STRUCTURE
+// =============================================================================
+
+typedef struct {
+    uint16_t raw_x_min;    // Raw touch value at screen left edge
+    uint16_t raw_x_max;    // Raw touch value at screen right edge
+    uint16_t raw_y_min;    // Raw touch value at screen top edge
+    uint16_t raw_y_max;    // Raw touch value at screen bottom edge
+    bool is_calibrated;    // True if calibration data is valid
+} calibration_data_t;
 
 // =============================================================================
 // GLOBAL STATE
@@ -323,6 +337,12 @@ typedef struct {
     // Keyboard state
     keyboard_page_t keyboard_page;
     int edit_buffer_len;
+    
+    // Calibration state
+    calibration_data_t calibration;
+    int calibration_point;  // Current calibration point being collected (0-1)
+    uint16_t cal_raw_x[2];  // Raw X values for calibration points
+    uint16_t cal_raw_y[2];  // Raw Y values for calibration points
 } app_state_t;
 
 static app_state_t app_state = {
@@ -338,7 +358,15 @@ static app_state_t app_state = {
     .touch_start_x = 0,
     .touch_start_y = 0,
     .keyboard_page = KB_PAGE_ALPHA_LOWER,
-    .edit_buffer_len = 0
+    .edit_buffer_len = 0,
+    .calibration = {
+        .raw_x_min = 0,
+        .raw_x_max = 4095,
+        .raw_y_min = 0,
+        .raw_y_max = 4095,
+        .is_calibrated = false
+    },
+    .calibration_point = 0
 };
 
 // SPI device handle for display
@@ -387,6 +415,8 @@ static void init_spi(void);
 // Storage functions
 static void load_macros(void);
 static void save_macro(int index, const char *text);
+static void load_calibration(void);
+static void save_calibration(void);
 
 // Display functions (to be implemented in display.c)
 static void display_init(void);
@@ -394,6 +424,7 @@ static void draw_main_screen(void);
 static void draw_config_screen(void);
 static void draw_keyboard(void);
 static void draw_bt_config_screen(void);
+static void draw_calibration_screen(void);
 
 // Display helper functions
 static void ili9341_fill_screen(uint16_t color);
@@ -420,6 +451,9 @@ static void handle_playback_touch(uint16_t x, uint16_t y, uint32_t press_duratio
 static void handle_config_touch(uint16_t x, uint16_t y);
 static void handle_keyboard_touch(uint16_t x, uint16_t y);
 static void handle_bt_config_touch(uint16_t x, uint16_t y);
+static void handle_calibration_touch(uint16_t raw_x, uint16_t raw_y);
+static uint16_t map_touch_x(uint16_t raw_x);
+static uint16_t map_touch_y(uint16_t raw_y);
 
 // Main tasks
 static void ui_task(void *pvParameters);
@@ -445,6 +479,9 @@ void app_main(void)
     
     // Load saved macros from NVS
     load_macros();
+    
+    // Load calibration data from NVS
+    load_calibration();
     
     // Initialize display
     display_init();
@@ -634,6 +671,74 @@ static void save_macro(int index, const char *text)
             // Update local copy
             strncpy(app_state.macros[index], text, MAX_MACRO_LEN - 1);
             app_state.macros[index][MAX_MACRO_LEN - 1] = '\0';
+        }
+    }
+    
+    nvs_close(nvs_handle);
+}
+
+/**
+ * Load calibration data from NVS
+ */
+static void load_calibration(void)
+{
+    ESP_LOGI(TAG, "Loading calibration data from NVS...");
+    
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
+    
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "NVS namespace not found, calibration not loaded");
+        app_state.calibration.is_calibrated = false;
+        return;
+    }
+    
+    // Try to load calibration data
+    size_t required_size = sizeof(calibration_data_t);
+    err = nvs_get_blob(nvs_handle, "calibration", &app_state.calibration, &required_size);
+    
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGW(TAG, "Calibration data not found");
+        app_state.calibration.is_calibrated = false;
+    } else if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error reading calibration data: %s", esp_err_to_name(err));
+        app_state.calibration.is_calibrated = false;
+    } else {
+        ESP_LOGI(TAG, "Calibration data loaded: X(%d-%d) Y(%d-%d)", 
+                 app_state.calibration.raw_x_min, app_state.calibration.raw_x_max,
+                 app_state.calibration.raw_y_min, app_state.calibration.raw_y_max);
+    }
+    
+    nvs_close(nvs_handle);
+}
+
+/**
+ * Save calibration data to NVS
+ */
+static void save_calibration(void)
+{
+    ESP_LOGI(TAG, "Saving calibration data to NVS...");
+    
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error opening NVS: %s", esp_err_to_name(err));
+        return;
+    }
+    
+    err = nvs_set_blob(nvs_handle, "calibration", &app_state.calibration, sizeof(calibration_data_t));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error saving calibration: %s", esp_err_to_name(err));
+    } else {
+        // Commit changes
+        err = nvs_commit(nvs_handle);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Error committing NVS: %s", esp_err_to_name(err));
+        } else {
+            ESP_LOGI(TAG, "Calibration data saved successfully: X(%d-%d) Y(%d-%d)", 
+                     app_state.calibration.raw_x_min, app_state.calibration.raw_x_max,
+                     app_state.calibration.raw_y_min, app_state.calibration.raw_y_max);
         }
     }
     
@@ -1834,6 +1939,58 @@ static void draw_bt_config_screen(void)
     ESP_LOGI(TAG, "Display: Bluetooth config screen drawn");
 }
 
+/**
+ * Draw the calibration screen
+ */
+static void draw_calibration_screen(void)
+{
+    ESP_LOGI(TAG, "Display: Drawing calibration screen (point %d)...", app_state.calibration_point);
+    
+    // Clear screen to black
+    ili9341_fill_screen(COLOR_BLACK);
+    
+    // Draw title area
+    ili9341_fill_rect(0, 0, SCREEN_WIDTH, 40, COLOR_DARKBLUE);
+    ili9341_draw_string(5, 15, "Touch Calibration", COLOR_WHITE, COLOR_DARKBLUE, 2);
+    
+    // Draw instruction text
+    const char* instruction = "Touch the target";
+    uint16_t inst_x = (SCREEN_WIDTH - strlen(instruction) * 6) / 2;
+    ili9341_draw_string(inst_x, 50, instruction, COLOR_WHITE, COLOR_BLACK, 1);
+    
+    // Define calibration points (2-point calibration: top-left and bottom-right)
+    uint16_t target_x, target_y;
+    const uint16_t margin = 30;
+    
+    if (app_state.calibration_point == 0) {
+        // First point: top-left corner
+        target_x = margin;
+        target_y = 70;
+    } else {
+        // Second point: bottom-right corner
+        target_x = SCREEN_WIDTH - margin;
+        target_y = SCREEN_HEIGHT - margin;
+    }
+    
+    // Draw crosshair target
+    const uint16_t cross_size = 20;
+    
+    // Draw white cross
+    ili9341_fill_rect(target_x - cross_size, target_y - 2, cross_size * 2, 4, COLOR_WHITE);
+    ili9341_fill_rect(target_x - 2, target_y - cross_size, 4, cross_size * 2, COLOR_WHITE);
+    
+    // Draw red center dot
+    ili9341_fill_rect(target_x - 3, target_y - 3, 6, 6, COLOR_RED);
+    
+    // Draw progress indicator
+    char progress[32];
+    snprintf(progress, sizeof(progress), "Point %d of 2", app_state.calibration_point + 1);
+    uint16_t prog_x = (SCREEN_WIDTH - strlen(progress) * 6) / 2;
+    ili9341_draw_string(prog_x, SCREEN_HEIGHT - 30, progress, COLOR_GRAY, COLOR_BLACK, 1);
+    
+    ESP_LOGI(TAG, "Display: Calibration screen drawn (target at %d, %d)", target_x, target_y);
+}
+
 // =============================================================================
 // BLUETOOTH FUNCTIONS (Stub implementations - to be completed)
 // =============================================================================
@@ -1912,11 +2069,17 @@ static void handle_playback_touch(uint16_t x, uint16_t y, uint32_t press_duratio
 {
     ESP_LOGI(TAG, "Playback touch at (%d, %d), duration: %lu ms", x, y, press_duration);
     
-    // Check for long press (5 seconds for config, 10 seconds for BT config)
+    // Check for long press (5s for config, 10s for calibration, 20s for BT config)
     if (press_duration >= BT_CONFIG_PRESS_MS) {
-        ESP_LOGI(TAG, "Long press detected (>10s) - opening BT config");
+        ESP_LOGI(TAG, "Long press detected (>20s) - opening BT config");
         app_state.mode = MODE_BT_CONFIG;
         draw_bt_config_screen();
+        return;
+    } else if (press_duration >= CALIBRATION_PRESS_MS) {
+        ESP_LOGI(TAG, "Long press detected (>10s) - opening calibration mode");
+        app_state.mode = MODE_CALIBRATION;
+        app_state.calibration_point = 0;
+        draw_calibration_screen();
         return;
     } else if (press_duration >= CONFIG_PRESS_MS) {
         ESP_LOGI(TAG, "Long press detected (>5s) - opening config mode");
@@ -2174,6 +2337,9 @@ static void handle_bt_config_touch(uint16_t x, uint16_t y)
         // Reload macros (will get defaults)
         load_macros();
         
+        // Reset calibration data
+        app_state.calibration.is_calibrated = false;
+        
         // Visual feedback - flash screen or show message
         ili9341_fill_screen(COLOR_RED);
         vTaskDelay(pdMS_TO_TICKS(500));
@@ -2182,6 +2348,156 @@ static void handle_bt_config_touch(uint16_t x, uint16_t y)
         app_state.mode = MODE_PLAYBACK;
         draw_main_screen();
     }
+}
+
+/**
+ * Handle touch in calibration mode
+ * Uses raw coordinates for calibration
+ */
+static void handle_calibration_touch(uint16_t raw_x, uint16_t raw_y)
+{
+    ESP_LOGI(TAG, "Calibration touch - raw: (%d, %d), point: %d", raw_x, raw_y, app_state.calibration_point);
+    
+    // Store the raw coordinates for this calibration point
+    app_state.cal_raw_x[app_state.calibration_point] = raw_x;
+    app_state.cal_raw_y[app_state.calibration_point] = raw_y;
+    
+    // Move to next calibration point
+    app_state.calibration_point++;
+    
+    if (app_state.calibration_point >= 2) {
+        // All calibration points collected, calculate calibration
+        ESP_LOGI(TAG, "Calibration complete - calculating calibration data");
+        
+        // Point 0 is top-left (30, 70)
+        // Point 1 is bottom-right (290, 210)
+        
+        // For a 2-point calibration with axes potentially swapped:
+        // In normal operation, we swap axes: raw_y->screen_x, raw_x->screen_y (inverted)
+        // So for calibration:
+        //   Point 0 (screen 30, 70) should map to raw_y[0] and raw_x[0]
+        //   Point 1 (screen 290, 210) should map to raw_y[1] and raw_x[1]
+        
+        // Since raw_y maps to screen_x (increasing left to right):
+        // Point 0 has lower screen_x (30), Point 1 has higher screen_x (290)
+        // So raw_y[0] < raw_y[1] normally
+        
+        // Since raw_x maps to screen_y inverted (SCREEN_HEIGHT - raw_x):
+        // Point 0 has lower screen_y (70), Point 1 has higher screen_y (210)
+        // After inversion: Point 0 should have higher raw_x, Point 1 lower raw_x
+        // So raw_x[0] > raw_x[1] normally
+        
+        // Store the raw values for each axis (we'll handle inversion in map functions)
+        // For raw_y -> screen_x mapping:
+        if (app_state.cal_raw_y[0] < app_state.cal_raw_y[1]) {
+            app_state.calibration.raw_x_min = app_state.cal_raw_y[0];
+            app_state.calibration.raw_x_max = app_state.cal_raw_y[1];
+        } else {
+            app_state.calibration.raw_x_min = app_state.cal_raw_y[1];
+            app_state.calibration.raw_x_max = app_state.cal_raw_y[0];
+        }
+        
+        // For raw_x -> screen_y mapping (inverted):
+        if (app_state.cal_raw_x[0] < app_state.cal_raw_x[1]) {
+            app_state.calibration.raw_y_min = app_state.cal_raw_x[0];
+            app_state.calibration.raw_y_max = app_state.cal_raw_x[1];
+        } else {
+            app_state.calibration.raw_y_min = app_state.cal_raw_x[1];
+            app_state.calibration.raw_y_max = app_state.cal_raw_x[0];
+        }
+        
+        app_state.calibration.is_calibrated = true;
+        
+        ESP_LOGI(TAG, "Calibration calculated: raw_y->screen_x(%d-%d) raw_x->screen_y(%d-%d)",
+                 app_state.calibration.raw_x_min, app_state.calibration.raw_x_max,
+                 app_state.calibration.raw_y_min, app_state.calibration.raw_y_max);
+        
+        // Save calibration to NVS
+        save_calibration();
+        
+        // Show success message
+        ili9341_fill_screen(COLOR_GREEN);
+        ili9341_draw_string(60, 110, "Calibration Complete!", COLOR_WHITE, COLOR_GREEN, 2);
+        vTaskDelay(pdMS_TO_TICKS(1500));
+        
+        // Return to main screen
+        app_state.mode = MODE_PLAYBACK;
+        app_state.calibration_point = 0;
+        draw_main_screen();
+    } else {
+        // Show next calibration point
+        draw_calibration_screen();
+    }
+}
+
+/**
+ * Map raw touch coordinate to screen X coordinate using calibration
+ * Note: raw_y maps to screen_x in landscape mode (axes are swapped)
+ */
+static uint16_t map_touch_x(uint16_t raw_y)
+{
+    if (!app_state.calibration.is_calibrated) {
+        // No calibration, use default mapping
+        // raw_y maps to screen_x for landscape mode
+        return (raw_y * SCREEN_WIDTH) / 4095;
+    }
+    
+    // Apply calibration
+    // Clamp raw value to calibration range
+    if (raw_y < app_state.calibration.raw_x_min) {
+        raw_y = app_state.calibration.raw_x_min;
+    }
+    if (raw_y > app_state.calibration.raw_x_max) {
+        raw_y = app_state.calibration.raw_x_max;
+    }
+    
+    // Map to screen coordinates
+    uint32_t range = app_state.calibration.raw_x_max - app_state.calibration.raw_x_min;
+    if (range == 0) range = 1; // Prevent division by zero
+    
+    uint16_t screen_x = ((uint32_t)(raw_y - app_state.calibration.raw_x_min) * SCREEN_WIDTH) / range;
+    
+    // Clamp to screen bounds
+    if (screen_x >= SCREEN_WIDTH) {
+        screen_x = SCREEN_WIDTH - 1;
+    }
+    
+    return screen_x;
+}
+
+/**
+ * Map raw touch coordinate to screen Y coordinate using calibration
+ * Note: raw_x maps to screen_y (inverted) in landscape mode
+ */
+static uint16_t map_touch_y(uint16_t raw_x)
+{
+    if (!app_state.calibration.is_calibrated) {
+        // No calibration, use default mapping
+        // raw_x maps to screen_y inverted for landscape mode
+        return (raw_x * SCREEN_HEIGHT) / 4095;
+    }
+    
+    // Apply calibration
+    // Clamp raw value to calibration range
+    if (raw_x < app_state.calibration.raw_y_min) {
+        raw_x = app_state.calibration.raw_y_min;
+    }
+    if (raw_x > app_state.calibration.raw_y_max) {
+        raw_x = app_state.calibration.raw_y_max;
+    }
+    
+    // Map to screen coordinates
+    uint32_t range = app_state.calibration.raw_y_max - app_state.calibration.raw_y_min;
+    if (range == 0) range = 1; // Prevent division by zero
+    
+    uint16_t screen_y = ((uint32_t)(raw_x - app_state.calibration.raw_y_min) * SCREEN_HEIGHT) / range;
+    
+    // Clamp to screen bounds
+    if (screen_y >= SCREEN_HEIGHT) {
+        screen_y = SCREEN_HEIGHT - 1;
+    }
+    
+    return screen_y;
 }
 
 /**
@@ -2228,44 +2544,47 @@ static void handle_touch_task(void *pvParameters)
                 uint32_t press_duration = (xTaskGetTickCount() * portTICK_PERIOD_MS) - touch_start_time;
                 ESP_LOGI(TAG, "Touch released - Duration: %lu ms", press_duration);
                 
-                // Map raw coordinates to screen coordinates
-                // XPT2046 typical range: 0-4095 for 12-bit ADC
-                // Screen: 320x240 in landscape mode
-                // Note: Calibration may be needed for specific hardware
-                // For now, using a simple linear mapping
-                // These values may need adjustment based on your specific display
-                
-                // Swap and invert coordinates for landscape mode
-                // This assumes the touch controller's orientation relative to display
-                uint16_t screen_x = (raw_y * SCREEN_WIDTH) / 4095;
-                uint16_t screen_y = SCREEN_HEIGHT - ((raw_x * SCREEN_HEIGHT) / 4095);
-                
-                // Clamp to screen bounds
-                if (screen_x >= SCREEN_WIDTH) screen_x = SCREEN_WIDTH - 1;
-                if (screen_y >= SCREEN_HEIGHT) screen_y = SCREEN_HEIGHT - 1;
-                
-                ESP_LOGI(TAG, "Mapped touch to screen coordinates: X=%d, Y=%d", screen_x, screen_y);
-                
                 // Handle touch based on current mode
-                switch (app_state.mode) {
-                    case MODE_PLAYBACK:
-                        handle_playback_touch(screen_x, screen_y, press_duration);
-                        break;
+                if (app_state.mode == MODE_CALIBRATION) {
+                    // In calibration mode, use raw coordinates
+                    handle_calibration_touch(raw_x, raw_y);
+                } else {
+                    // For all other modes, map coordinates to screen space
+                    // Map raw coordinates to screen coordinates using calibration
+                    // XPT2046 typical range: 0-4095 for 12-bit ADC
+                    // Screen: 320x240 in landscape mode
                     
-                    case MODE_CONFIG:
-                        handle_config_touch(screen_x, screen_y);
-                        break;
+                    // Swap and invert coordinates for landscape mode
+                    // This assumes the touch controller's orientation relative to display
+                    uint16_t screen_x = map_touch_x(raw_y);
+                    uint16_t screen_y = SCREEN_HEIGHT - map_touch_y(raw_x);
                     
-                    case MODE_EDIT_KEYBOARD:
-                        handle_keyboard_touch(screen_x, screen_y);
-                        break;
+                    // Clamp to screen bounds
+                    if (screen_x >= SCREEN_WIDTH) screen_x = SCREEN_WIDTH - 1;
+                    if (screen_y >= SCREEN_HEIGHT) screen_y = SCREEN_HEIGHT - 1;
                     
-                    case MODE_BT_CONFIG:
-                        handle_bt_config_touch(screen_x, screen_y);
-                        break;
+                    ESP_LOGI(TAG, "Mapped touch to screen coordinates: X=%d, Y=%d", screen_x, screen_y);
                     
-                    default:
-                        break;
+                    switch (app_state.mode) {
+                        case MODE_PLAYBACK:
+                            handle_playback_touch(screen_x, screen_y, press_duration);
+                            break;
+                        
+                        case MODE_CONFIG:
+                            handle_config_touch(screen_x, screen_y);
+                            break;
+                        
+                        case MODE_EDIT_KEYBOARD:
+                            handle_keyboard_touch(screen_x, screen_y);
+                            break;
+                        
+                        case MODE_BT_CONFIG:
+                            handle_bt_config_touch(screen_x, screen_y);
+                            break;
+                        
+                        default:
+                            break;
+                    }
                 }
                 
                 was_touched = false;
@@ -2292,13 +2611,25 @@ static void ui_task(void *pvParameters)
         ESP_LOGI(TAG, "Running display test sequence...");
         run_display_test();
         
-        // After test completes, switch to normal playback mode
-        app_state.mode = MODE_PLAYBACK;
-        ESP_LOGI(TAG, "Switched to playback mode");
+        // After test completes, check if calibration is needed
+        if (!app_state.calibration.is_calibrated) {
+            ESP_LOGI(TAG, "No calibration data found - entering calibration mode");
+            app_state.mode = MODE_CALIBRATION;
+            app_state.calibration_point = 0;
+            draw_calibration_screen();
+        } else {
+            // Calibration exists, go directly to playback mode
+            ESP_LOGI(TAG, "Calibration data found - switching to playback mode");
+            app_state.mode = MODE_PLAYBACK;
+            draw_main_screen();
+        }
+    } else if (app_state.mode == MODE_CALIBRATION) {
+        // Start in calibration mode if explicitly set
+        draw_calibration_screen();
+    } else {
+        // Draw initial screen based on current mode
+        draw_main_screen();
     }
-    
-    // Draw initial screen
-    draw_main_screen();
     
     uint32_t last_update = 0;
     
