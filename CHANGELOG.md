@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Calibration applies axis swapping for landscape mode orientation
   - Visual crosshair targets and progress indicators during calibration
   - Success confirmation message after calibration completion
+- **Bluetooth pairing button** in Bluetooth Configuration Mode
+  - Blue "PAIR" button added to initiate Bluetooth pairing
+  - Shows "Pairing mode active..." message when pressed
+  - Located above the CLEAR FLASH button for better visibility
 
 ### Changed
 - **Updated touch press duration thresholds** for better usability
@@ -26,8 +30,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Falls back to default mapping if no calibration data exists
   - Properly handles axis swapping (raw_y → screen_x, raw_x → screen_y)
 - Clear flash operation in BT config now also resets calibration data
+- Button layout in Bluetooth Configuration Mode adjusted for new PAIR button
+  - PAIR button positioned at y=150
+  - CLEAR FLASH button repositioned to y=190
+  - Both buttons standardized to 120x35 pixel size
 
 ### Fixed
+- **Y-axis touchscreen orientation** - removed incorrect Y-axis inversion
+  - Touch Y-axis now maps directly without inversion: `screen_y = map_touch_y(raw_x)`
+  - Fixes upside-down Y-axis behavior reported in issue
 - Fixed display rotation - display now rotates 90 degrees clockwise to correct orientation
   - Changed ILI9341 MADCTL register from 0x48 to 0x28
   - Updated display initialization logs to reflect new orientation

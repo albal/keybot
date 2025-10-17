@@ -404,6 +404,18 @@ Different hold durations provide access to different modes from **Playback Mode*
 - Text preview area
 - Persistent storage (survives reboot)
 
+### Bluetooth Configuration Mode
+
+Accessed via 20-second long press from Playback Mode:
+
+- **Device Name**: Displays the Bluetooth device name (keybot)
+- **Connection Status**: Shows current Bluetooth connection state
+- **PAIR Button**: Initiates Bluetooth pairing mode for connecting to new devices
+- **CLEAR FLASH Button**: Erases all stored data (macros and calibration) from NVS flash memory
+- **BACK Button**: Returns to Playback Mode
+
+**Note**: The PAIR button activates pairing mode, making the device discoverable to nearby Bluetooth devices. Look for "ESP32 MacroPad" in your device's Bluetooth settings.
+
 ### Bluetooth HID
 
 - Advertises as "ESP32 MacroPad"
