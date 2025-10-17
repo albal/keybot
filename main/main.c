@@ -172,7 +172,7 @@ static const char *TAG = "MACROPAD";
 #define PIN_BACKLIGHT   21
 
 // SPI host
-#define SPI_HOST        HSPI_HOST
+#define MACROPAD_SPI_HOST        HSPI_HOST
 
 // =============================================================================
 // DISPLAY CONFIGURATION
@@ -403,7 +403,7 @@ static void init_spi(void)
         .max_transfer_sz = SCREEN_WIDTH * SCREEN_HEIGHT * 2
     };
     
-    esp_err_t ret = spi_bus_initialize(SPI_HOST, &buscfg, SPI_DMA_CH_AUTO);
+    esp_err_t ret = spi_bus_initialize(MACROPAD_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO);
     ESP_ERROR_CHECK(ret);
     
     ESP_LOGI(TAG, "SPI bus initialized");
@@ -587,7 +587,7 @@ static void display_init(void)
         .queue_size = 7,                      // Queue 7 transactions at a time
         .pre_cb = ili9341_spi_pre_transfer_callback,  // Callback to handle D/C line
     };
-    esp_err_t ret = spi_bus_add_device(SPI_HOST, &devcfg, &display_spi);
+    esp_err_t ret = spi_bus_add_device(MACROPAD_SPI_HOST, &devcfg, &display_spi);
     ESP_ERROR_CHECK(ret);
     ESP_LOGI(TAG, "Display: SPI device added (CS: GPIO%d, Clock: 26MHz)", PIN_TFT_CS);
     
@@ -753,7 +753,7 @@ static void display_init(void)
         .queue_size = 1,
         .flags = SPI_DEVICE_NO_DUMMY,
     };
-    esp_err_t ret = spi_bus_add_device(SPI_HOST, &touch_cfg, &touch_spi);
+    ret = spi_bus_add_device(MACROPAD_SPI_HOST, &touch_cfg, &touch_spi);
     ESP_ERROR_CHECK(ret);
     ESP_LOGI(TAG, "Touch: XPT2046 initialized (CS: GPIO%d, Clock: 2MHz)", PIN_TOUCH_CS);
 }
