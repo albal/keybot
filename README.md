@@ -18,6 +18,7 @@ This project implements a custom Bluetooth HID macro keyboard using an ESP32-WRO
 - **Configuration Mode**: Easy-to-use on-screen QWERTY keyboard for editing macros
 - **Real-time Bluetooth Status**: Visual indicator shows connection status
 - **Native ESP-IDF**: Uses Espressif's native framework for better performance
+- **Display Test Sequence**: Automatic graphical test on startup to verify display and touch functionality
 
 ## Hardware Requirements
 
@@ -272,7 +273,32 @@ I (xxx) MACROPAD: Firmware Version: v0.1.2
 
 ## Usage
 
-### First Boot
+### First Boot and Display Test
+
+When you first power on the device or reset it, it will automatically run a **Display Test Sequence**:
+
+1. **Test Patterns**: The display cycles through various color patterns and tests:
+   - Primary colors (Red, Green, Blue)
+   - Secondary colors (Yellow, Cyan, Magenta)
+   - Grayscale (White, Gray, Black)
+   - Vertical and horizontal color bars
+   - Checkerboard pattern
+   - Corner rectangles
+   - Center cross pattern
+
+2. **Purpose**: This test verifies that the display and touch controller are working correctly. It helps identify any hardware issues like dead pixels, color problems, or wiring errors.
+
+3. **Exit Test**: **Touch anywhere on the screen** to exit the test and start normal operation.
+
+4. **Continuous Loop**: The tests will repeat in a loop until you touch the screen.
+
+For more details about the display test, see [DISPLAY_TEST.md](DISPLAY_TEST.md).
+
+### Normal Operation - Playback Mode
+
+### Normal Operation - Playback Mode
+
+After the display test completes (or on subsequent boots after you've exited the test), the device operates in Playback Mode:
 
 1. The device will start in **Playback Mode**
 2. Display shows 4 macro buttons labeled "M1", "M2", "M3", "M4"
@@ -355,6 +381,17 @@ I (xxx) MACROPAD: Firmware Version: v0.1.2
 - Keys: "macro0", "macro1", "macro2", "macro3"
 
 ## Troubleshooting
+
+### Display Test Issues
+
+If the display test doesn't run properly on startup:
+
+1. **No display output**: Check wiring connections and verify display initialization in serial monitor
+2. **Test exits immediately**: Touch controller may be detecting false touches - check touch wiring
+3. **Colors look wrong**: Verify RGB565 color format and display orientation settings
+4. **Can't exit test**: Touch harder on the screen (resistive touch requires pressure)
+
+See [DISPLAY_TEST.md](DISPLAY_TEST.md) for detailed display test troubleshooting.
 
 ### Display Not Working
 
