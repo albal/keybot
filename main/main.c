@@ -46,25 +46,38 @@
  * └── components/             # External components (optional)
  * 
  * =============================================================================
- * PINOUT DIAGRAM - ESP32-WROOM-32 to ILI9341 TFT Display
+ * PINOUT DIAGRAM - ESP32-WROOM-32E to 2.8inch ESP32-32E Display (QD-TFT2803)
  * =============================================================================
  * 
- * ESP32 Pin    ->    ILI9341/XPT2046 Pin
- * ---------         ------------------
- * GPIO 23      ->    TFT_MOSI (SDI/MOSI)
- * GPIO 19      ->    TFT_MISO (SDO/MISO)
- * GPIO 18      ->    TFT_SCLK (SCK)
- * GPIO 15      ->    TFT_CS (Chip Select for Display)
- * GPIO 2       ->    TFT_DC (Data/Command)
- * GPIO 4       ->    TFT_RST (Reset)
- * GPIO 5       ->    TOUCH_CS (Chip Select for Touch Controller)
+ * Reference: https://www.lcdwiki.com/res/E32R28T/QD-TFT2803_specification_v1.1.pdf
+ * 
+ * IMPORTANT: This hardware uses SEPARATE SPI buses for display and touch!
+ * 
+ * Display (ILI9341) - Uses VSPI:
+ * ESP32 Pin    ->    Display Pin     ->    Function
+ * ---------         -------------          --------
+ * GPIO 13      ->    SDI (MOSI)      ->    SPI Data Out
+ * GPIO 12      ->    SDO (MISO)      ->    SPI Data In
+ * GPIO 14      ->    SCK             ->    SPI Clock
+ * GPIO 15      ->    CS              ->    Chip Select (active low)
+ * GPIO 2       ->    DC (D/C)        ->    Data/Command (High: data, Low: command)
+ * EN           ->    RST (Reset)     ->    Shared reset with ESP32 (use -1 in code)
+ * GPIO 21      ->    LED             ->    Backlight (High: on, Low: off)
+ * 
+ * Touch Controller (XPT2046) - Uses HSPI (separate bus!):
+ * ESP32 Pin    ->    Touch Pin       ->    Function
+ * ---------         -----------            --------
+ * GPIO 32      ->    T_DIN (MOSI)    ->    SPI Data Out
+ * GPIO 39      ->    T_DO (MISO)     ->    SPI Data In (input only pin)
+ * GPIO 25      ->    T_CLK (SCLK)    ->    SPI Clock
+ * GPIO 33      ->    T_CS            ->    Chip Select (active low)
+ * GPIO 36      ->    T_IRQ           ->    Touch Interrupt (active low, input only)
  * 
  * Power:
  * 3.3V         ->    VCC
  * GND          ->    GND
  * 
- * Optional:
- * GPIO 21      ->    TFT_LED (Backlight)
+ * NOTE: Touch pins 36 and 39 are input-only GPIO pins on ESP32
  * 
  * =============================================================================
  * CODE OVERVIEW (ESP-IDF Architecture)
@@ -83,8 +96,9 @@
  *    - Hardware and software reset on startup
  *    - Detailed console logging for initialization steps
  *    - Power control, gamma correction, and pixel format setup
- *    - XPT2046 SPI communication for touch (to be implemented)
+ *    - XPT2046 touch controller on separate SPI bus
  *    - Reference: https://www.lcdwiki.com/2.8inch_ESP32-32E_Display
+ *    - Datasheet: https://www.lcdwiki.com/res/E32R28T/QD-TFT2803_specification_v1.1.pdf
  * 
  * 3. Bluetooth HID:
  *    - Uses ESP-IDF Bluedroid stack
@@ -158,21 +172,32 @@
 static const char *TAG = "MACROPAD";
 
 // =============================================================================
-// PIN DEFINITIONS
+// PIN DEFINITIONS - 2.8inch ESP32-32E Display (QD-TFT2803)
 // =============================================================================
+// Reference: https://www.lcdwiki.com/res/E32R28T/QD-TFT2803_specification_v1.1.pdf
+//
+// Display and Touch use separate SPI buses on this hardware!
+// Display uses VSPI pins, Touch uses dedicated pins
 
-// Display SPI pins
-#define PIN_MOSI        23
-#define PIN_MISO        19
-#define PIN_SCLK        18
-#define PIN_TFT_CS      15
-#define PIN_TFT_DC      2
-#define PIN_TFT_RST     4
-#define PIN_TOUCH_CS    5
-#define PIN_BACKLIGHT   21
+// Display SPI pins (VSPI)
+#define PIN_TFT_MOSI    13  // LCD SPI MOSI
+#define PIN_TFT_MISO    12  // LCD SPI MISO
+#define PIN_TFT_SCLK    14  // LCD SPI SCLK
+#define PIN_TFT_CS      15  // LCD CS (low level effective)
+#define PIN_TFT_DC      2   // LCD DC (High: data, Low: command)
+#define PIN_TFT_RST     -1  // LCD RST (shares EN pin with ESP32, use -1 to skip)
+#define PIN_BACKLIGHT   21  // LCD backlight (high: on, low: off)
 
-// SPI host
-#define MACROPAD_SPI_HOST        HSPI_HOST
+// Touch controller pins (separate SPI)
+#define PIN_TOUCH_MOSI  32  // Touch SPI MOSI
+#define PIN_TOUCH_MISO  39  // Touch SPI MISO (input only pin)
+#define PIN_TOUCH_SCLK  25  // Touch SPI SCLK
+#define PIN_TOUCH_CS    33  // Touch CS (low level effective)
+#define PIN_TOUCH_IRQ   36  // Touch interrupt (input only, low: touch detected)
+
+// SPI hosts
+#define DISPLAY_SPI_HOST    VSPI_HOST  // Display uses VSPI
+#define TOUCH_SPI_HOST      HSPI_HOST  // Touch uses HSPI
 
 // =============================================================================
 // DISPLAY CONFIGURATION
@@ -388,25 +413,46 @@ static void init_gpio(void)
 }
 
 /**
- * Initialize SPI bus for display and touch
+ * Initialize SPI buses for display and touch
+ * Display and touch use separate SPI buses on the 2.8inch ESP32-32E hardware
  */
 static void init_spi(void)
 {
-    ESP_LOGI(TAG, "Initializing SPI...");
+    ESP_LOGI(TAG, "Initializing SPI buses...");
     
-    spi_bus_config_t buscfg = {
-        .mosi_io_num = PIN_MOSI,
-        .miso_io_num = PIN_MISO,
-        .sclk_io_num = PIN_SCLK,
+    // Initialize VSPI for display
+    ESP_LOGI(TAG, "Configuring VSPI for display (MOSI:%d, MISO:%d, SCLK:%d)...", 
+             PIN_TFT_MOSI, PIN_TFT_MISO, PIN_TFT_SCLK);
+    spi_bus_config_t display_bus_cfg = {
+        .mosi_io_num = PIN_TFT_MOSI,
+        .miso_io_num = PIN_TFT_MISO,
+        .sclk_io_num = PIN_TFT_SCLK,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
         .max_transfer_sz = SCREEN_WIDTH * SCREEN_HEIGHT * 2
     };
     
-    esp_err_t ret = spi_bus_initialize(MACROPAD_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO);
+    esp_err_t ret = spi_bus_initialize(DISPLAY_SPI_HOST, &display_bus_cfg, SPI_DMA_CH_AUTO);
     ESP_ERROR_CHECK(ret);
+    ESP_LOGI(TAG, "VSPI initialized for display");
     
-    ESP_LOGI(TAG, "SPI bus initialized");
+    // Initialize HSPI for touch controller
+    ESP_LOGI(TAG, "Configuring HSPI for touch (MOSI:%d, MISO:%d, SCLK:%d)...", 
+             PIN_TOUCH_MOSI, PIN_TOUCH_MISO, PIN_TOUCH_SCLK);
+    spi_bus_config_t touch_bus_cfg = {
+        .mosi_io_num = PIN_TOUCH_MOSI,
+        .miso_io_num = PIN_TOUCH_MISO,
+        .sclk_io_num = PIN_TOUCH_SCLK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 32  // Touch needs much smaller transfers
+    };
+    
+    ret = spi_bus_initialize(TOUCH_SPI_HOST, &touch_bus_cfg, SPI_DMA_DISABLED);
+    ESP_ERROR_CHECK(ret);
+    ESP_LOGI(TAG, "HSPI initialized for touch controller");
+    
+    ESP_LOGI(TAG, "SPI buses initialized successfully");
 }
 
 // =============================================================================
@@ -549,11 +595,18 @@ static void ili9341_spi_pre_transfer_callback(spi_transaction_t *t)
 static void ili9341_reset(void)
 {
     ESP_LOGI(TAG, "Display: Performing hardware reset...");
-    gpio_set_level(PIN_TFT_RST, 0);
-    vTaskDelay(pdMS_TO_TICKS(100));
-    gpio_set_level(PIN_TFT_RST, 1);
-    vTaskDelay(pdMS_TO_TICKS(100));
-    ESP_LOGI(TAG, "Display: Hardware reset complete");
+    
+    // Check if reset pin is configured (not -1)
+    if (PIN_TFT_RST >= 0) {
+        gpio_set_level(PIN_TFT_RST, 0);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        gpio_set_level(PIN_TFT_RST, 1);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        ESP_LOGI(TAG, "Display: Hardware reset complete");
+    } else {
+        ESP_LOGI(TAG, "Display: Skipping hardware reset (RST pin shared with ESP32 EN)");
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 }
 
 /**
@@ -565,18 +618,31 @@ static void ili9341_reset(void)
 static void display_init(void)
 {
     ESP_LOGI(TAG, "Display: Starting ILI9341 initialization...");
+    ESP_LOGI(TAG, "Display: Hardware: 2.8inch ESP32-32E Display (QD-TFT2803)");
     
-    // Configure RST and DC pins as outputs
+    // Configure RST and DC pins as outputs (only if RST is not -1)
     ESP_LOGI(TAG, "Display: Configuring control pins...");
-    gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << PIN_TFT_RST) | (1ULL << PIN_TFT_DC),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
-    };
-    gpio_config(&io_conf);
-    ESP_LOGI(TAG, "Display: Control pins configured (RST: GPIO%d, DC: GPIO%d)", PIN_TFT_RST, PIN_TFT_DC);
+    if (PIN_TFT_RST >= 0) {
+        gpio_config_t io_conf = {
+            .pin_bit_mask = (1ULL << PIN_TFT_RST) | (1ULL << PIN_TFT_DC),
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE
+        };
+        gpio_config(&io_conf);
+        ESP_LOGI(TAG, "Display: Control pins configured (RST: GPIO%d, DC: GPIO%d)", PIN_TFT_RST, PIN_TFT_DC);
+    } else {
+        gpio_config_t io_conf = {
+            .pin_bit_mask = (1ULL << PIN_TFT_DC),
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE
+        };
+        gpio_config(&io_conf);
+        ESP_LOGI(TAG, "Display: Control pins configured (RST: shared EN, DC: GPIO%d)", PIN_TFT_DC);
+    }
     
     // Add SPI device for display
     ESP_LOGI(TAG, "Display: Adding SPI device...");
@@ -587,7 +653,7 @@ static void display_init(void)
         .queue_size = 7,                      // Queue 7 transactions at a time
         .pre_cb = ili9341_spi_pre_transfer_callback,  // Callback to handle D/C line
     };
-    esp_err_t ret = spi_bus_add_device(MACROPAD_SPI_HOST, &devcfg, &display_spi);
+    esp_err_t ret = spi_bus_add_device(DISPLAY_SPI_HOST, &devcfg, &display_spi);
     ESP_ERROR_CHECK(ret);
     ESP_LOGI(TAG, "Display: SPI device added (CS: GPIO%d, Clock: 26MHz)", PIN_TFT_CS);
     
@@ -746,6 +812,9 @@ static void display_init(void)
     
     // Initialize touch controller
     ESP_LOGI(TAG, "Touch: Initializing XPT2046 touch controller...");
+    ESP_LOGI(TAG, "Touch: Using separate HSPI bus (MOSI:%d, MISO:%d, SCLK:%d)", 
+             PIN_TOUCH_MOSI, PIN_TOUCH_MISO, PIN_TOUCH_SCLK);
+    
     spi_device_interface_config_t touch_cfg = {
         .clock_speed_hz = 2 * 1000 * 1000,  // 2 MHz for touch (slower than display)
         .mode = 0,                           // SPI mode 0
@@ -753,9 +822,21 @@ static void display_init(void)
         .queue_size = 1,
         .flags = SPI_DEVICE_NO_DUMMY,
     };
-    ret = spi_bus_add_device(MACROPAD_SPI_HOST, &touch_cfg, &touch_spi);
+    ret = spi_bus_add_device(TOUCH_SPI_HOST, &touch_cfg, &touch_spi);
     ESP_ERROR_CHECK(ret);
-    ESP_LOGI(TAG, "Touch: XPT2046 initialized (CS: GPIO%d, Clock: 2MHz)", PIN_TOUCH_CS);
+    ESP_LOGI(TAG, "Touch: XPT2046 initialized (CS: GPIO%d, IRQ: GPIO%d, Clock: 2MHz)", 
+             PIN_TOUCH_CS, PIN_TOUCH_IRQ);
+    
+    // Configure touch IRQ pin as input (optional, for interrupt-based touch detection)
+    gpio_config_t touch_irq_conf = {
+        .pin_bit_mask = (1ULL << PIN_TOUCH_IRQ),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,  // XPT2046 IRQ is active low
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE  // Not using interrupts yet, just polling
+    };
+    gpio_config(&touch_irq_conf);
+    ESP_LOGI(TAG, "Touch: IRQ pin configured for polling");
 }
 
 /**
