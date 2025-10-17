@@ -1920,11 +1920,19 @@ static void draw_bt_config_screen(void)
     const char* status_text = app_state.ble_connected ? "Status: Connected" : "Status: Disconnected";
     ili9341_draw_string(15, 115, status_text, COLOR_WHITE, COLOR_DARKGRAY, 1);
     
+    // Draw pair button (blue, centered at top)
+    uint16_t pair_btn_width = 120;
+    uint16_t pair_btn_height = 35;
+    uint16_t pair_btn_x = (SCREEN_WIDTH - pair_btn_width) / 2;
+    uint16_t pair_btn_y = 150;
+    ili9341_draw_button(pair_btn_x, pair_btn_y, pair_btn_width, pair_btn_height, 
+                       COLOR_BLUE, "PAIR");
+    
     // Draw clear flash button (red, prominent)
-    uint16_t clear_btn_width = 150;
-    uint16_t clear_btn_height = 40;
+    uint16_t clear_btn_width = 120;
+    uint16_t clear_btn_height = 35;
     uint16_t clear_btn_x = (SCREEN_WIDTH - clear_btn_width) / 2;
-    uint16_t clear_btn_y = 160;
+    uint16_t clear_btn_y = 190;
     ili9341_draw_button(clear_btn_x, clear_btn_y, clear_btn_width, clear_btn_height, 
                        COLOR_RED, "CLEAR FLASH");
     
@@ -2312,11 +2320,34 @@ static void handle_bt_config_touch(uint16_t x, uint16_t y)
         return;
     }
     
+    // Check if pair button was pressed
+    uint16_t pair_btn_width = 120;
+    uint16_t pair_btn_height = 35;
+    uint16_t pair_btn_x = (SCREEN_WIDTH - pair_btn_width) / 2;
+    uint16_t pair_btn_y = 150;
+    
+    if (x >= pair_btn_x && x < (pair_btn_x + pair_btn_width) &&
+        y >= pair_btn_y && y < (pair_btn_y + pair_btn_height)) {
+        ESP_LOGI(TAG, "Pair button pressed - initiating Bluetooth pairing");
+        
+        // TODO: Implement actual Bluetooth pairing logic
+        // For now, just provide visual feedback
+        
+        // Show pairing message
+        ili9341_fill_rect(10, 50, SCREEN_WIDTH - 20, 40, COLOR_BLUE);
+        ili9341_draw_string(15, 65, "Pairing mode active...", COLOR_WHITE, COLOR_BLUE, 1);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        
+        // Redraw the screen
+        draw_bt_config_screen();
+        return;
+    }
+    
     // Check if clear flash button was pressed
-    uint16_t clear_btn_width = 150;
-    uint16_t clear_btn_height = 40;
+    uint16_t clear_btn_width = 120;
+    uint16_t clear_btn_height = 35;
     uint16_t clear_btn_x = (SCREEN_WIDTH - clear_btn_width) / 2;
-    uint16_t clear_btn_y = 160;
+    uint16_t clear_btn_y = 190;
     
     if (x >= clear_btn_x && x < (clear_btn_x + clear_btn_width) &&
         y >= clear_btn_y && y < (clear_btn_y + clear_btn_height)) {
@@ -2554,10 +2585,10 @@ static void handle_touch_task(void *pvParameters)
                     // XPT2046 typical range: 0-4095 for 12-bit ADC
                     // Screen: 320x240 in landscape mode
                     
-                    // Swap and invert coordinates for landscape mode
+                    // Swap coordinates for landscape mode
                     // This assumes the touch controller's orientation relative to display
                     uint16_t screen_x = map_touch_x(raw_y);
-                    uint16_t screen_y = SCREEN_HEIGHT - map_touch_y(raw_x);
+                    uint16_t screen_y = map_touch_y(raw_x);
                     
                     // Clamp to screen bounds
                     if (screen_x >= SCREEN_WIDTH) screen_x = SCREEN_WIDTH - 1;
