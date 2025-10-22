@@ -2340,7 +2340,6 @@ static void handle_bt_config_touch(uint16_t x, uint16_t y)
         
         // Redraw the screen
         draw_bt_config_screen();
-        return;
     }
     
     // Check if clear flash button was pressed
